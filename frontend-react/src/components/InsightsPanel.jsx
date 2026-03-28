@@ -1,4 +1,3 @@
-import React from 'react';
 import { AlertTriangle, Info, AlertCircle, Zap } from 'lucide-react';
 
 const InsightsPanel = ({ summary, insights }) => {

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Bot, User, Copy, Check, Sparkles, ChevronDown } from 'lucide-react';
 import { askQuery } from '../services/api';
 
@@ -23,7 +23,7 @@ function RichText({ text }) {
     }
 
     // Bullet list (• or -)
-    const bulletMatch = line.match(/^\s*[•\-]\s+(.*)/);
+    const bulletMatch = line.match(/^\s*[•-]\s+(.*)/);
     if (bulletMatch) {
       elements.push(
         <div key={i} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.25rem' }}>

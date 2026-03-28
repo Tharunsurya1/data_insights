@@ -1,10 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
 
 export default function PermissionPage() {
-  const role = localStorage.getItem('role');
-  if (role !== 'admin') return <Navigate to="/datasets" />;
-
   const [activeUsers, setActiveUsers] = useState([
     { id: 1, email: 'admin@system.local', role: 'admin' },
     { id: 2, email: 'user1@test.com', role: 'user' },
@@ -14,6 +11,9 @@ export default function PermissionPage() {
     { id: 3, email: 'new_hire@test.com' },
     { id: 4, email: 'data_analyst@company.com' },
   ]);
+
+  const role = localStorage.getItem('role');
+  if (role !== 'admin') return <Navigate to="/datasets" />;
 
   const acceptUser = (user) => {
     setActiveUsers([...activeUsers, { ...user, role: 'user' }]);
