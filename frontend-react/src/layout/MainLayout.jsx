@@ -8,6 +8,7 @@ const MainLayout = ({ children }) => {
   const location = useLocation();
   const [datasets, setDatasets] = useState([]);
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
+  const role = localStorage.getItem('role');
 
   useEffect(() => {
     const fetchDatasets = async () => {
@@ -45,18 +46,20 @@ const MainLayout = ({ children }) => {
             </h2>
           </Link>
 
-          <nav style={{ display: 'flex', gap: '1.5rem', marginLeft: '1rem' }}>
-            <Link to="/upload" className={location.pathname === '/upload' ? 'active-nav' : ''} style={{ textDecoration: 'none', color: 'var(--text-muted)', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Upload size={16} /> Upload
-            </Link>
-            <Link to="/datasets" className={location.pathname === '/datasets' ? 'active-nav' : ''} style={{ textDecoration: 'none', color: 'var(--text-muted)', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Database size={16} /> Workspace
-            </Link>
-          </nav>
+          {role !== 'admin' && (
+            <nav style={{ display: 'flex', gap: '1.5rem', marginLeft: '1rem' }}>
+              <Link to="/upload" className={location.pathname === '/upload' ? 'active-nav' : ''} style={{ textDecoration: 'none', color: 'var(--text-muted)', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Upload size={16} /> Upload
+              </Link>
+              <Link to="/datasets" className={location.pathname === '/datasets' ? 'active-nav' : ''} style={{ textDecoration: 'none', color: 'var(--text-muted)', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Database size={16} /> Workspace
+              </Link>
+            </nav>
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-          {datasets.length > 0 && (
+          {role !== 'admin' && datasets.length > 0 && (
             <div style={{ position: 'relative' }}>
               <button 
                 onClick={() => setIsSwitcherOpen(!isSwitcherOpen)}

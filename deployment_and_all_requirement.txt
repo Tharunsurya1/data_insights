@@ -1,4 +1,4 @@
-Here are the final operational confirmations for integrating the Python ML Engine into the Node.js production environment. I have also written the requirement specifications to 
+ Here are the final operational confirmations for integrating the Python ML Engine into the Node.js production environment. I have also written the requirement specifications to 
 
 ml_engine/requirements.txt
 .
