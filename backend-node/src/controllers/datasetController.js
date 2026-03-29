@@ -103,3 +103,33 @@ export const getMetrics = async (req, res) => {
     return res.status(404).json({ success: false, message: "Metrics not found" });
   }
 };
+
+export const getDashboardConfig = async (req, res) => {
+  const datasetId = req.params.id;
+  const userId = req.user?.id || "default_user";
+  const datasetDir = path.resolve(process.cwd(), `../ml_engine/data/users/${userId}/${datasetId}`);
+  
+  try {
+    const dashPath = path.join(datasetDir, "dashboard_config.json");
+    const dashData = await fs.readFile(dashPath, "utf-8");
+    const config = JSON.parse(dashData);
+    
+    // Also load KPIs if available
+    try {
+      const kpiPath = path.join(datasetDir, "kpi_summary.json");
+      const kpiData = await fs.readFile(kpiPath, "utf-8");
+      config.kpis_raw = JSON.parse(kpiData);
+    } catch {}
+    
+    // Also load model metrics if available
+    try {
+      const modelMetricsPath = path.join(datasetDir, "model_metrics.json");
+      const mmData = await fs.readFile(modelMetricsPath, "utf-8");
+      config.model_metrics = JSON.parse(mmData);
+    } catch {}
+    
+    return res.json({ success: true, ...config });
+  } catch (err) {
+    return res.status(404).json({ success: false, message: "Dashboard configuration not ready or not found." });
+  }
+};

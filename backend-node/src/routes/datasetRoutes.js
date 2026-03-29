@@ -9,6 +9,7 @@ import {
   trainDataset,
   getAnalysis,
   getMetrics,
+  getDashboardConfig,
 } from "../controllers/datasetController.js";
 
 const router = express.Router();
@@ -44,5 +45,8 @@ router.get("/datasets/:id/analysis", getAnalysis);
 
 // Get trained model metrics
 router.get("/datasets/:id/metrics", getMetrics);
+
+// Get dashboard configuration (charts, insights, KPIs)
+router.get("/dashboard/:id", getDashboardConfig);
 
 export default router;

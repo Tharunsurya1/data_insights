@@ -82,15 +82,16 @@ export default function Login() {
                 role: "user"
             });
 
-            if (res.data.role !== "user") {
-                setError("This account is not authorized for user access");
+            if (res.data.role === "admin") {
+                setError("This account is an admin. Please use the Admin login page.");
                 setLoading(false);
                 return;
             }
 
             localStorage.setItem("token", res.data.token);
-            localStorage.setItem("role", "user");
-            nav("/datasets");
+            localStorage.setItem("role", res.data.role);
+            localStorage.setItem("userName", res.data.name || email.split('@')[0]);
+            nav("/employee/datasets");
         } catch {
             setError("Invalid credentials. Please try again.");
             setLoading(false);

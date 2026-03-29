@@ -89,7 +89,7 @@ export default function AdminLogin() {
             }
 
             localStorage.setItem("token", res.data.token);
-            localStorage.setItem("role", "admin");
+            localStorage.setItem("role", res.data.role);
             nav("/admin");
         } catch {
             setError("Invalid credentials. Please try again.");

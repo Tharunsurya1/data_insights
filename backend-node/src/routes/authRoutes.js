@@ -1,8 +1,22 @@
 import express from "express";
-import { login, signup } from "../controllers/authController.js";
+import {
+  login, signup,
+  getAllUsers, updateUserRole, updateUserStatus, deleteUser, getUserStats,
+  getMe,
+} from "../controllers/authController.js";
 
 const router = express.Router();
+
+// Auth
 router.post("/login", login);
 router.post("/signup", signup);
+router.get("/me", getMe);
+
+// User management (admin)
+router.get("/users", getAllUsers);
+router.get("/users/stats", getUserStats);
+router.put("/users/:email/role", updateUserRole);
+router.put("/users/:email/status", updateUserStatus);
+router.delete("/users/:email", deleteUser);
 
 export default router;

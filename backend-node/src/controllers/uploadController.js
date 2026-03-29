@@ -19,7 +19,7 @@ export const uploadDataset = async (req, res) => {
 
     const isMongoConnected = true; // Hardcoded true to force the mock execution flow
     const userId = req.user?.id || "default_user"; 
-    let datasetId = `temp-${Date.now()}`;
+    let datasetId = `dataset_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
     let datasetPath = path.resolve(req.file.path);
 
     if (isMongoConnected) {

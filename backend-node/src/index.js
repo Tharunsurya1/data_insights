@@ -12,6 +12,7 @@ import visualizationRoutes from "./routes/visualizationRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import datasetRoutes from "./routes/datasetRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
+import ragChatRoutes from "./routes/ragChatRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 
 dotenv.config();
@@ -25,6 +26,7 @@ app.use(express.json());
 
 /* ========== ROUTES ========== */
 app.use("/api", chatRoutes);
+app.use("/api", ragChatRoutes);
 app.use("/api", visualizationRoutes);
 app.use("/api", uploadRoutes);
 app.use("/api", datasetRoutes);

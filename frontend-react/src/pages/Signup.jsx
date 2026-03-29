@@ -93,18 +93,12 @@ export default function Signup() {
                 role
             });
 
-            if (res.data.role !== role) {
-                setError("Role mismatch during signup");
-                setLoading(false);
-                return;
-            }
-
             localStorage.setItem("token", res.data.token);
-            localStorage.setItem("role", role);
-            if (role === "admin") {
+            localStorage.setItem("role", res.data.role);
+            if (res.data.role === "admin") {
                 nav("/admin");
             } else {
-                nav("/datasets");
+                nav("/employee/datasets");
             }
         } catch {
             setError("Signup failed. Please try again.");
