@@ -61,8 +61,8 @@ export const uploadDataset = async (req, res) => {
       console.log(`[PIPELINE-JOB-START] dataset_id=${datasetId}`);
       
       const mlProcess = spawn('python', [
-          `"${pythonScript}"`,
-          '--dataset_path', `"${datasetPath}"`,
+          pythonScript,
+          '--dataset_path', datasetPath,
           '--dataset_id', datasetId,
           '--user_id', userId
       ], { cwd: mlCwd, shell: true });

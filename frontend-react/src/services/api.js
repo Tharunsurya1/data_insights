@@ -109,4 +109,9 @@ export const getDatasets = async () => {
     return response.data;
 };
 
+export const getCleanedData = async (datasetId, params = {}) => {
+    const response = await api.get(`/cleaned-data/${datasetId}`, { params });
+    return response.data;
+};
+
 export default api;

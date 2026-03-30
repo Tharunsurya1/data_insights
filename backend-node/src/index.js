@@ -14,6 +14,7 @@ import datasetRoutes from "./routes/datasetRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
 import ragChatRoutes from "./routes/ragChatRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
+import cleanedDataRoutes from "./routes/cleanedDataRoutes.js";
 
 dotenv.config();
 connectDB();
@@ -32,6 +33,7 @@ app.use("/api", uploadRoutes);
 app.use("/api", datasetRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api", cleanedDataRoutes);
 
 /* ========== HEALTH CHECK ========== */
 app.get("/", (req, res) => {

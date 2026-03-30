@@ -6,7 +6,7 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend, AreaChart, Area
 } from 'recharts';
-import { MessageSquare, Database, Download } from 'lucide-react';
+import { MessageSquare, Database, Download, BarChart3 } from 'lucide-react';
 
 const COLORS = ['#58a6ff', '#bc8cff', '#3fb950', '#d29922', '#f85149'];
 
@@ -301,6 +301,14 @@ const DashboardPage = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '1rem' }}>
+
+          <button
+            className="btn-primary"
+            onClick={() => navigate(`/employee/visualization?ds=${datasetId}`)}
+          >
+            <BarChart3 size={16} />
+            Visualize & Filter
+          </button>
 
           <button
             className="btn-primary"

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, FileText, Eye, Sparkles, LayoutDashboard, ChevronDown, ChevronUp, RefreshCw, Settings, X } from 'lucide-react';
+import { Search, FileText, Eye, Sparkles, LayoutDashboard, ChevronDown, ChevronUp, RefreshCw, Settings, X, BarChart3 } from 'lucide-react';
 import { getDatasets } from '../../services/api';
 import EmployeeLayout from '../../layout/EmployeeLayout';
 
@@ -372,6 +372,12 @@ const EmployeeDatasetsPage = () => {
                       <button className="emp-btn emp-btn-primary emp-btn-sm"
                         onClick={(e) => { e.stopPropagation(); navigate('/employee/cleaning'); }}>
                         Start Cleaning →
+                      </button>
+                    )}
+                    {ds.status === 'ready' && (
+                      <button className="emp-btn emp-btn-ghost emp-btn-sm"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/employee/visualization?ds=${ds.id}&name=${encodeURIComponent(ds.name)}`); }}>
+                        <BarChart3 size={12} /> Visualize
                       </button>
                     )}
                     {ds.status === 'ready' && (

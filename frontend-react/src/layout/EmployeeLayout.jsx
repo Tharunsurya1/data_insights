@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { Database, Sparkles, LayoutDashboard, MessageSquare, FileText, Settings, LogOut, Activity, Upload } from 'lucide-react';
+import { Database, Sparkles, LayoutDashboard, MessageSquare, FileText, Settings, LogOut, Activity, Upload, BarChart3 } from 'lucide-react';
 import { getMe } from '../services/api';
 
 const navItems = [
   { path: '/employee/upload', label: 'Upload', icon: Upload },
   { path: '/employee/datasets', label: 'Datasets', icon: Database },
   { path: '/employee/analysis', label: 'Analysis', icon: Sparkles },
+  { path: '/employee/visualization', label: 'Visualization', icon: BarChart3 },
   { path: '/employee/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/employee/chat', label: 'Chatbot', icon: MessageSquare },
   { path: '/employee/summary', label: 'Summary', icon: FileText },

@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, Play, SkipForward, Sparkles, Zap, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Play, SkipForward, Sparkles, Zap, X, BarChart3 } from 'lucide-react';
 import EmployeeLayout from '../../layout/EmployeeLayout';
 
 const STEPS = [
@@ -511,9 +511,14 @@ const EmployeeCleaningPage = () => {
                   Showing 50 of 4,514 rows
                 </span>
               </div>
-              <button className="emp-btn emp-btn-success" onClick={() => { setVerifyOpen(false); navigate('/employee/dashboard'); }}>
-                <CheckCircle2 size={14} /> Approve & Open Dashboard →
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="emp-btn emp-btn-ghost" onClick={() => { setVerifyOpen(false); navigate('/employee/visualization'); }}>
+                  <BarChart3 size={14} /> Visualize
+                </button>
+                <button className="emp-btn emp-btn-success" onClick={() => { setVerifyOpen(false); navigate('/employee/dashboard'); }}>
+                  <CheckCircle2 size={14} /> Approve & Open Dashboard →
+                </button>
+              </div>
             </div>
           </div>
         </div>
