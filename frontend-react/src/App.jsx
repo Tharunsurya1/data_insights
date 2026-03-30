@@ -22,6 +22,9 @@ import EmployeeCleaningPage from './pages/employee/EmployeeCleaningPage';
 import EmployeeDashboardPage from './pages/employee/EmployeeDashboardPage';
 import EmployeeChatPage from './pages/employee/EmployeeChatPage';
 import EmployeeSummaryPage from './pages/employee/EmployeeSummaryPage';
+import DatasetAnalysisPage from './pages/employee/DatasetAnalysisPage';
+import ColumnCleaningPage from './pages/employee/ColumnCleaningPage';
+import VisualizationPage from './pages/employee/VisualizationPage';
 
 export default function App() {
   return (
@@ -44,14 +47,19 @@ export default function App() {
         <Route path="/dashboard/:datasetId" element={<MainLayout><DashboardPage /></MainLayout>} />
         <Route path="/chat/:datasetId" element={<MainLayout><ChatPage /></MainLayout>} />
         <Route path="/datachat" element={<MainLayout><DataChatPage /></MainLayout>} />
+        <Route path="/visualization/:datasetId" element={<MainLayout><VisualizationPage /></MainLayout>} />
 
         {/* Employee Section (dedicated sidebar layout) */}
         <Route path="/employee" element={<Navigate to="/employee/datasets" replace />} />
+        <Route path="/employee/upload" element={<UploadPage />} />
         <Route path="/employee/datasets" element={<EmployeeDatasetsPage />} />
+        <Route path="/employee/analysis" element={<DatasetAnalysisPage />} />
+        <Route path="/employee/column-cleaning" element={<ColumnCleaningPage />} />
         <Route path="/employee/cleaning" element={<EmployeeCleaningPage />} />
         <Route path="/employee/dashboard" element={<EmployeeDashboardPage />} />
         <Route path="/employee/chat" element={<EmployeeChatPage />} />
         <Route path="/employee/summary" element={<EmployeeSummaryPage />} />
+        <Route path="/employee/visualization" element={<VisualizationPage />} />
       </Routes>
     </BrowserRouter>
   );

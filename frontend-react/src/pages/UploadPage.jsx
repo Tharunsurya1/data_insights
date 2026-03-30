@@ -158,11 +158,11 @@ const UploadPage = () => {
                 Dataset: {file?.name} · ID: {datasetId}
               </p>
               <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-                <button className="btn-primary" onClick={() => navigate('/employee/datasets')}
+                <button className="btn-primary" onClick={() => navigate(`/employee/analysis?ds=${datasetId}&name=${encodeURIComponent(file?.name || '')}`)}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0.75rem 1.5rem' }}>
-                  View Datasets <ArrowRight size={16} />
+                  Analyze & Clean Dataset <ArrowRight size={16} />
                 </button>
-                <button onClick={resetUpload} style={{
+                <button onClick={() => navigate('/employee/datasets')} style={{
                   background: 'none', border: '1px solid var(--border-color)', color: 'var(--text-muted)',
                   padding: '0.75rem 1.5rem', borderRadius: 8, cursor: 'pointer',
                   fontFamily: 'var(--font-family)',
