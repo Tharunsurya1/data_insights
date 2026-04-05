@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Send, Bot, User, Copy, Check, Sparkles, LayoutDashboard, Trash2 } from 'lucide-react';
-import { askQuery } from '../../services/api';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Send, Bot, User, Copy, Check, Sparkles, LayoutDashboard, Trash2, Database } from 'lucide-react';
+import { askQuery, getDatasets } from '../../services/api';
 import EmployeeLayout from '../../layout/EmployeeLayout';
 
 function RichText({ text }) {
@@ -127,35 +127,101 @@ function TypingDots() {
 
 const EmployeeChatPage = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const datasetId = searchParams.get('ds') || null;
+  const [availableDatasets, setAvailableDatasets] = useState([]);
+  const [selectedDataset, setSelectedDataset] = useState(null);
   const [messages, setMessages] = useState([{
     id: 0, role: 'ai',
-    content: "👋 Hello! I'm your **AI Data Assistant**. I have full context of Customer_Data.xlsx (v3 · 12,450 rows · 24 columns).\n\nAsk me about **totals**, **trends**, **top performers**, **anomalies**, **forecasts**, or anything about your data!\n\nTry one of the suggested questions on the left →",
+    content: "👋 Hello! I'm your **AI Data Assistant**. Ask me about **totals**, **trends**, **top performers**, **anomalies**, **forecasts**, or anything about your data!\n\nSelect a dataset from the dropdown above and try one of the suggested questions on the left →",
     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
   }]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedCols, setSelectedCols] = useState(['revenue']);
-  const [queryHistory] = useState(['Total revenue by region', 'Top 10 customers by revenue', 'Monthly trend 2024']);
+  const [selectedCols, setSelectedCols] = useState([]);
+  const [queryHistory, setQueryHistory] = useState([]);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
   const msgId = useRef(1);
 
+  // Load available datasets
+  useEffect(() => {
+    const loadDatasets = async () => {
+      try {
+        const res = await getDatasets();
+        if (res.success && res.data) {
+          const readyDatasets = res.data.filter(d => d.status === 'completed' || d.status === 'ready');
+          setAvailableDatasets(readyDatasets);
+          
+          if (!datasetId && readyDatasets.length > 0) {
+            setSelectedDataset(readyDatasets[0]);
+          } else if (datasetId) {
+            const selected = readyDatasets.find(d => (d.dataset_id || d.id) === datasetId);
+            if (selected) setSelectedDataset(selected);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load datasets:', err.message);
+      }
+    };
+    loadDatasets();
+  }, [datasetId]);
+
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isLoading]);
 
-  const handleSend = useCallback((text) => {
+  const handleSend = useCallback(async (text) => {
     const msg = (text || input).trim();
     if (!msg || isLoading) return;
+    
+    const currentDs = selectedDataset;
+    const dsId = currentDs?.dataset_id || currentDs?.id;
+    
     setInput('');
     const id = msgId.current++;
     setMessages(prev => [...prev, { id, role: 'user', content: msg, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
     setIsLoading(true);
-    setTimeout(() => {
-      const r = getResponse(msg);
+    
+    // Add to query history
+    if (!queryHistory.includes(msg)) {
+      setQueryHistory(prev => [msg, ...prev.slice(0, 4)]);
+    }
+
+    try {
+      // Try to get real response from backend
+      if (dsId) {
+        const response = await askQuery(dsId, msg);
+        let answer = response?.answer || "I'm sorry, I couldn't compute an answer for that.";
+        
+        // Check for image-related errors
+        if (answer.toLowerCase().includes("cannot read image") || 
+            answer.toLowerCase().includes("does not support image") ||
+            answer.toLowerCase().includes("model does not support image input")) {
+          answer = "⚠️ **Image Input Not Supported**\n\nThe AI model does not support image input. Please ask questions using text only. For example:\n\n- 'What is the total revenue by region?'\n- 'Show me top 5 products'\n- 'What are the monthly trends?'\n\nYou can also switch to a text-capable model in the backend settings if available.";
+        }
+        
+        const bid = msgId.current++;
+        setMessages(prev => [...prev, { id: bid, role: 'ai', content: buildResponseHTML({ text: answer }), time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
+      } else {
+        // Fallback to mock response
+        const r = getResponse(msg);
+        const bid = msgId.current++;
+        setMessages(prev => [...prev, { id: bid, role: 'ai', content: buildResponseHTML(r), time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
+      }
+    } catch (err) {
+      console.error('Chat error:', err);
       const bid = msgId.current++;
-      setMessages(prev => [...prev, { id: bid, role: 'ai', content: buildResponseHTML(r), time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
-      setIsLoading(false);
-    }, 1200 + Math.random() * 800);
-  }, [input, isLoading]);
+      setMessages(prev => [...prev, { 
+        id: bid, role: 'ai', 
+        content: buildResponseHTML({ 
+          text: "⚠️ **Connection Error**\n\nCould not reach the AI service. Please ensure the backend is running and try again.",
+          insight: "Make sure the RAG server is running: `python ml_engine/rag_server.py`"
+        }), 
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+      }]);
+    }
+    
+    setIsLoading(false);
+  }, [input, isLoading, selectedDataset, queryHistory]);
 
   const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } };
   const toggleCol = (col) => setSelectedCols(prev => prev.includes(col) ? prev.filter(c => c !== col) : [...prev, col]);
@@ -254,13 +320,29 @@ const EmployeeChatPage = () => {
             borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0,
           }}>
             <div style={{ fontSize: 20 }}>◎</div>
-            <div>
+            <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>DataInsights Chatbot</div>
-              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>Customer_Data.xlsx · v3 · Ready</div>
+              {availableDatasets.length > 1 ? (
+                <select className="emp-filter-select" value={selectedDataset?.dataset_id || selectedDataset?.id || ''}
+                  onChange={(e) => {
+                    const ds = availableDatasets.find(d => (d.dataset_id || d.id) === e.target.value);
+                    if (ds) {
+                      setSelectedDataset(ds);
+                      setMessages([{ id: 0, role: 'ai', content: `👋 Switched to **${ds.name}**. Ask me about **totals**, **trends**, **top performers**, or anything about your data!`, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
+                      msgId.current = 1;
+                    }
+                  }} style={{ marginTop: 4, fontSize: 10, minWidth: 150 }}>
+                  {availableDatasets.map(ds => <option key={ds.dataset_id || ds.id} value={ds.dataset_id || ds.id}>{ds.name}</option>)}
+                </select>
+              ) : (
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {selectedDataset?.name || 'No dataset selected'}
+                </div>
+              )}
             </div>
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-              <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={clearChat}><Trash2 size={12} /> Clear Chat</button>
-              <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={() => navigate('/employee/dashboard')}><LayoutDashboard size={12} /> Dashboard →</button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={clearChat}><Trash2 size={12} /> Clear</button>
+              <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={() => navigate('/employee/dashboard')}><LayoutDashboard size={12} /> Dashboard</button>
             </div>
           </div>
 
@@ -268,8 +350,10 @@ const EmployeeChatPage = () => {
           <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
             {messages.map((msg, idx) => {
               const isUser = msg.role === 'user';
+              const isImageError = !isUser && msg.content && (msg.content.toLowerCase().includes("does not support image") || msg.content.toLowerCase().includes("cannot read image") || msg.content.toLowerCase().includes("image input not supported"));
               return (
-                <div key={msg.id} style={{ display: 'flex', gap: 10, flexDirection: isUser ? 'row-reverse' : 'row', animation: 'adminFadeUp 0.25s ease' }}>
+                <div key={msg.id} style={{ display: 'flex', gap: 10, flexDirection: isUser ? 'row-reverse' : 'row', animation: 'adminFadeUp 0.25s ease', justifyContent: isImageError ? 'center' : 'flex-start' }}>
+                  {!isImageError && (
                   <div style={{
                     width: 28, height: 28, borderRadius: isUser ? 7 : 8, flexShrink: 0,
                     background: isUser ? 'rgba(255,255,255,0.06)' : 'rgba(88,166,255,0.08)',
@@ -277,7 +361,21 @@ const EmployeeChatPage = () => {
                   }}>
                     {isUser ? <User size={14} color="var(--text-muted)" /> : <Bot size={14} color="var(--primary)" />}
                   </div>
-                  <div style={{ maxWidth: '75%' }}>
+                  )}
+                  <div style={{ maxWidth: isImageError ? '70%' : '75%' }}>
+                    {isImageError ? (
+                      <div style={{
+                        padding: '20px 24px', fontSize: 13, lineHeight: 1.6,
+                        borderRadius: 16,
+                        background: 'linear-gradient(135deg, rgba(210,153,34,0.15), rgba(248,81,73,0.1))',
+                        border: '1px solid rgba(210,153,34,0.4)',
+                        color: '#fff',
+                        textAlign: 'center',
+                        boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+                      }}>
+                        <RichText text={msg.content} />
+                      </div>
+                    ) : (
                     <div style={{
                       padding: '11px 14px', fontSize: 13, lineHeight: 1.65,
                       borderRadius: isUser ? '12px 3px 12px 12px' : '3px 12px 12px 12px',
@@ -289,7 +387,8 @@ const EmployeeChatPage = () => {
                     }}>
                       {isUser ? <p style={{ margin: 0 }}>{msg.content}</p> : <RichText text={msg.content} />}
                     </div>
-                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginTop: 4, padding: '0 2px', textAlign: isUser ? 'right' : 'left' }}>{msg.time}</div>
+                    )}
+                    {!isImageError && <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginTop: 4, padding: '0 2px', textAlign: isUser ? 'right' : 'left' }}>{msg.time}</div>}
                   </div>
                 </div>
               );

@@ -443,13 +443,22 @@ Give a clear, concise answer using these exact values. No disclaimers."""
 
     # ── LLM Caller ───────────────────────────────────────
     def _call_llm(self, prompt, backend, max_tokens=350):
+        result = None
         if backend == "ollama":
-            return self._ask_ollama(prompt, max_tokens)
-        if backend == "huggingface":
-            return self._ask_hf(prompt, max_tokens)
-        raise ValueError(f"Unknown backend: {backend}")
+            result = self._ask_ollama(prompt, max_tokens)
+        elif backend == "huggingface":
+            result = self._ask_hf(prompt, max_tokens)
+        else:
+            raise ValueError(f"Unknown backend: {backend}")
 
-    def _ask_ollama(self, prompt, max_tokens=350):
+        if result is None:
+            return (
+                "AI temporarily unavailable. Please try again or use a different model."
+            )
+
+        return result
+
+    def _ask_ollama(self, prompt, max_tokens=350) -> str | None:
         import requests
 
         preferred = [
@@ -492,15 +501,35 @@ Give a clear, concise answer using these exact values. No disclaimers."""
                 timeout=300,
             )
             resp.raise_for_status()
-            return (
-                resp.json().get("response", "").strip() or "Empty response from Ollama."
-            )
+            response = resp.json().get("response", "").strip()
+
+            if not response:
+                logger.warning("[RAG] Empty response from Ollama")
+                return None
+
+            error_patterns = [
+                "does not support image",
+                "cannot read image",
+                "not support",
+                "vision",
+                "multimodal",
+            ]
+            if any(pattern in response.lower() for pattern in error_patterns):
+                logger.warning(
+                    "[RAG] Model does not support image input - using fallback"
+                )
+                return None
+
+            return response
         except requests.exceptions.ConnectionError:
-            return "Ollama not running. Run: ollama serve"
+            logger.warning("[RAG] Ollama not running")
+            return None
         except requests.exceptions.Timeout:
-            return "Ollama timed out. Try again."
+            logger.warning("[RAG] Ollama timed out")
+            return None
         except Exception as e:
-            return f"Ollama error: {e}"
+            logger.warning(f"[RAG] Ollama error: {e}")
+            return None
 
     def _ask_hf(self, prompt, max_tokens=350):
         try:

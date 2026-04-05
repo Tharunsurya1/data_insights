@@ -6,7 +6,7 @@
   "scripts": {
     "dev:backend": "cd backend-node && npm run dev",
     "dev:frontend": "cd frontend-react && npm run dev",
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev": "npx concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "install:all": "npm install && cd backend-node && npm install && cd ../frontend-react && npm install"
   },
   "devDependencies": {

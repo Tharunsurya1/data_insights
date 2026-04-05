@@ -19,8 +19,8 @@ export const loginUser = async (email, password, role) => {
     return response.data;
 };
 
-export const signupUser = async (email, password, role) => {
-    const response = await api.post('/auth/signup', { email, password, role });
+export const signupUser = async ({ firstName, lastName, phone, email, password, role }) => {
+    const response = await api.post('/auth/signup', { firstName, lastName, phone, email, password, role });
     return response.data;
 };
 
@@ -67,6 +67,16 @@ export const deleteUser = async (email) => {
     return response.data;
 };
 
+export const getPendingUsers = async () => {
+    const response = await api.get('/auth/users/pending');
+    return response.data;
+};
+
+export const approveUser = async (email, approved) => {
+    const response = await api.put(`/auth/users/${encodeURIComponent(email)}/approve`, { approved });
+    return response.data;
+};
+
 export const uploadDataset = async (file) => {
     const formData = new FormData();
     formData.append('dataset', file);
@@ -92,7 +102,7 @@ export const getDashboardConfig = async (datasetId) => {
 };
 
 export const getAnalytics = async (datasetId) => {
-    const response = await api.get(`/analytics/${datasetId}`);
+    const response = await api.get(`/analytics/?datasetId=${datasetId}`);
     return response.data;
 };
 
@@ -106,6 +116,11 @@ export const askQuery = async (datasetId, question) => {
 
 export const getDatasets = async () => {
     const response = await api.get('/datasets');
+    return response.data;
+};
+
+export const deleteDataset = async (datasetId) => {
+    const response = await api.delete(`/datasets/${datasetId}`);
     return response.data;
 };
 

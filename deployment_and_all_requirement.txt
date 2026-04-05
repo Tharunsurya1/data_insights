@@ -4,7 +4,7 @@ ml_engine/requirements.txt
 .
 
 1. Python Environment Requirements
-I have created 
+I have created
 
 ml_engine/requirements.txt
  containing the exact open-source dependency tree. Recommended Python Version: Python 3.10 or 3.11.

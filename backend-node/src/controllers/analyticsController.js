@@ -5,8 +5,12 @@ export const analyticsSummary = async (req, res) => {
   const datasetId = req.query.datasetId || req.body.datasetId;
   if (!datasetId) return res.status(400).json({ error: "datasetId is required" });
 
+  const userId = req.user?.email;
+  if (!userId) {
+    return res.status(401).json({ success: false, message: "Authentication required" });
+  }
+
   try {
-    const userId = req.user?.id || "default_user";
     const insightsPath = path.resolve(process.cwd(), `../ml_engine/data/users/${userId}/${datasetId}/insights.json`);
     const kpiPath = path.resolve(process.cwd(), `../ml_engine/data/users/${userId}/${datasetId}/kpi_summary.json`);
     
@@ -38,8 +42,12 @@ export const analyticsChart = async (req, res) => {
   const { datasetId } = req.body;
   if (!datasetId) return res.status(400).json({ error: "datasetId is required" });
 
+  const userId = req.user?.email;
+  if (!userId) {
+    return res.status(401).json({ success: false, message: "Authentication required" });
+  }
+
   try {
-    const userId = req.user?.id || "default_user";
     const forecastPath = path.resolve(process.cwd(), `../ml_engine/data/users/${userId}/${datasetId}/forecast.json`);
     
     const data = await fs.readFile(forecastPath, "utf-8");

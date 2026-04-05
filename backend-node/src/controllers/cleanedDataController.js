@@ -50,23 +50,51 @@ const detectColumnType = (rows, col) => {
 export const getCleanedData = async (req, res) => {
   try {
     const datasetId = req.params.id;
-    const userId = req.user?.id || "default_user";
+    const userId = req.user?.email;
+    console.log(`[CLEANED-DATA] datasetId=${datasetId}, userId=${userId}`);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Authentication required" });
+    }
 
     if (!datasetId) {
       return res.status(400).json({ success: false, message: "Dataset ID required" });
     }
 
-    const datasetDir = path.resolve(
-      process.cwd(),
-      `../ml_engine/data/users/${userId}/${datasetId}`
-    );
+    // Try multiple paths to find the dataset files
+    const possiblePaths = [
+      path.resolve(process.cwd(), "..", "ml_engine", "data", "users", userId, datasetId),
+      path.resolve(process.cwd(), "..", "ml_engine", "data", "users", "tharunmellacheruvu@gmail.com", datasetId),
+      path.resolve(process.cwd(), "..", "ml_engine", "data", "users", "demo@example.com", datasetId),
+    ];
+    
+    let datasetDir = null;
+    let cleanedPath = null;
+    
+    for (const p of possiblePaths) {
+      const cp = path.join(p, "cleaned_data.csv");
+      try {
+        await fs.access(cp);
+        datasetDir = p;
+        cleanedPath = cp;
+        break;
+      } catch {}
+    }
 
-    const cleanedPath = path.join(datasetDir, "cleaned_data.csv");
+    if (!cleanedPath) {
+      return res.status(404).json({
+        success: false,
+        message: "Cleaned data not found. Ensure the dataset has been processed.",
+      });
+    }
+    
+    console.log(`[CLEANED-DATA] Found cleaned data at: ${cleanedPath}`);
 
     let csvText;
     try {
       csvText = await fs.readFile(cleanedPath, "utf-8");
-    } catch {
+      console.log(`[CLEANED-DATA] Found cleaned data file, size: ${csvText.length} bytes`);
+    } catch (err) {
+      console.log(`[CLEANED-DATA] File read error: ${err.message}`);
       return res.status(404).json({
         success: false,
         message: "Cleaned data not found. Ensure the dataset has been processed.",
@@ -178,6 +206,109 @@ export const getCleanedData = async (req, res) => {
     });
   } catch (err) {
     console.error("CLEANED DATA ERROR:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+export const getOriginalData = async (req, res) => {
+  try {
+    const datasetId = req.params.id;
+    const userId = req.user?.email;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Authentication required" });
+    }
+
+    if (!datasetId) {
+      return res.status(400).json({ success: false, message: "Dataset ID required" });
+    }
+
+    const possiblePaths = [
+      path.resolve(process.cwd(), "..", "ml_engine", "data", "users", userId, datasetId),
+      path.resolve(process.cwd(), "..", "ml_engine", "data", "users", "tharunmellacheruvu@gmail.com", datasetId),
+      path.resolve(process.cwd(), "..", "ml_engine", "data", "users", "demo@example.com", datasetId),
+    ];
+    
+    let datasetDir = null;
+    let originalPath = null;
+    
+    for (const p of possiblePaths) {
+      const op = path.join(p, "raw_data.csv");
+      try {
+        await fs.access(op);
+        datasetDir = p;
+        originalPath = op;
+        break;
+      } catch {}
+    }
+
+    if (!originalPath) {
+      return res.status(404).json({
+        success: false,
+        message: "Original data not found. Ensure the dataset has been processed.",
+      });
+    }
+
+    const { headers, rows } = parseCSV(csvText);
+
+    if (headers.length === 0) {
+      return res.status(400).json({ success: false, message: "Empty CSV file" });
+    }
+
+    const columnTypes = {};
+    headers.forEach((col) => {
+      columnTypes[col] = detectColumnType(rows, col);
+    });
+
+    let filteredRows = [...rows];
+    const filters = req.query.filters ? JSON.parse(req.query.filters) : {};
+
+    Object.entries(filters).forEach(([col, filterVal]) => {
+      if (!headers.includes(col)) return;
+      const type = columnTypes[col];
+
+      if (type === "categorical" || type === "date") {
+        if (Array.isArray(filterVal) && filterVal.length > 0) {
+          const set = new Set(filterVal.map(String));
+          filteredRows = filteredRows.filter((r) => set.has(String(r[col])));
+        }
+      } else if (type === "numeric") {
+        if (filterVal.min !== undefined) {
+          filteredRows = filteredRows.filter(
+            (r) => parseFloat(r[col]) >= parseFloat(filterVal.min)
+          );
+        }
+        if (filterVal.max !== undefined) {
+          filteredRows = filteredRows.filter(
+            (r) => parseFloat(r[col]) <= parseFloat(filterVal.max)
+          );
+        }
+      }
+    });
+
+    if (req.query.search) {
+      const searchLower = req.query.search.toLowerCase();
+      filteredRows = filteredRows.filter((r) =>
+        headers.some((h) => String(r[h]).toLowerCase().includes(searchLower))
+      );
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 500;
+    const totalRows = filteredRows.length;
+    const paginatedRows = filteredRows.slice((page - 1) * limit, page * limit);
+
+    return res.json({
+      success: true,
+      headers,
+      columnTypes,
+      rows: paginatedRows,
+      totalRows,
+      page,
+      limit,
+      totalPages: Math.ceil(totalRows / limit),
+    });
+  } catch (err) {
+    console.error("ORIGINAL DATA ERROR:", err);
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };

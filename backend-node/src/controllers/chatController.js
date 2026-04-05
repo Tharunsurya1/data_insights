@@ -24,16 +24,44 @@ export const askQuestion = async (req, res) => {
     });
   }
 
-  const userId      = req.user?.id || "default_user";
-  const datasetDir  = path.join(DATA_DIR, userId, datasetId);
+  // Use email for path, fallback to demo email
+  const userEmail = req.user?.email || "tharunmellacheruvu@gmail.com";
+  
+  // Try multiple paths to find the dataset
+  const possibleDirs = [
+    path.join(DATA_DIR, userEmail, datasetId),
+    path.join(DATA_DIR, "tharunmellacheruvu@gmail.com", datasetId),
+    path.join(DATA_DIR, "demo@example.com", datasetId),
+  ];
+  
+  let datasetDir = null;
+  for (const dir of possibleDirs) {
+    try {
+      const fs = await import('fs');
+      if (fs.existsSync(dir)) {
+        datasetDir = dir;
+        break;
+      }
+    } catch {}
+  }
+  
+  if (!datasetDir) {
+    return res.json({
+      success: true,
+      source: "fallback",
+      answer: "⚠️ Dataset not found. Please ensure the dataset was uploaded and processed successfully. Try selecting a different dataset from the dropdown.",
+      intent: "error",
+      confidence: 0,
+    });
+  }
 
   // Escape args to prevent shell injection
   const safeQuestion   = queryText.replace(/"/g, '\\"');
-  const safeUserId     = userId.replace(/"/g, '\\"');
+  const safeUserEmail   = userEmail.replace(/"/g, '\\"');
   const safeDatasetId  = datasetId.replace(/"/g, '\\"');
   const safeDatasetDir = datasetDir.replace(/"/g, '\\"');
 
-  const cmd = `python "${QUERY_SCRIPT}" --user_id "${safeUserId}" --dataset_id "${safeDatasetId}" --question "${safeQuestion}" --dataset_dir "${safeDatasetDir}"`;
+  const cmd = `python "${QUERY_SCRIPT}" --user_id "${safeUserEmail}" --dataset_id "${safeDatasetId}" --question "${safeQuestion}" --dataset_dir "${safeDatasetDir}"`;
 
   let responded = false;
   const timer = setTimeout(() => {

@@ -1,23 +1,8 @@
-import { useState } from 'react';
-import { Navigate } from 'react-router-dom';
-import { Download, Filter, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Navigate, useNavigate } from 'react-router-dom';
+import { Download, Filter, X, Loader, Database, Users, AlertCircle } from 'lucide-react';
 import AdminLayout from '../../layout/AdminLayout';
-
-const logEntries = [
-  { id: 1, timestamp: '2025-01-20 14:32:11', employee: 'Arjun', initials: 'AS', color: '#c84b2f', event: 'QUERY', dataset: 'Finance_Q2.xlsx', detail: '"Show total revenue by month"', status: 'ok', time: '142ms' },
-  { id: 2, timestamp: '2025-01-20 14:28:04', employee: 'Arjun', initials: 'AS', color: '#c84b2f', event: 'BLOCKED', dataset: 'Finance_Q2.xlsx', detail: '"DELETE rows where revenue < 0"', status: 'blocked', time: '8ms' },
-  { id: 3, timestamp: '2025-01-20 13:55:00', employee: 'Priya', initials: 'PM', color: '#1d4ed8', event: 'UPLOAD', dataset: 'Customer_Data.xlsx', detail: 'File uploaded · 8.1MB · hash verified', status: 'ok', time: '1.2s' },
-  { id: 4, timestamp: '2025-01-20 13:12:44', employee: 'Neha', initials: 'NK', color: '#b45309', event: 'QUERY', dataset: 'HR_Records.csv', detail: '"List employees in Engineering dept"', status: 'ok', time: '88ms' },
-  { id: 5, timestamp: '2025-01-20 12:48:20', employee: 'Rohan', initials: 'RK', color: '#2d6a4f', event: 'LOGIN', dataset: '—', detail: 'Login from 192.168.1.42', status: 'ok', time: '—' },
-  { id: 6, timestamp: '2025-01-20 11:30:05', employee: 'Priya', initials: 'PM', color: '#1d4ed8', event: 'CLEAN', dataset: 'Customer_Data.xlsx', detail: 'Cleaning approved · 12,000 rows · 3 nulls filled', status: 'ok', time: '4.1s' },
-  { id: 7, timestamp: '2025-01-20 10:05:18', employee: 'Neha', initials: 'NK', color: '#b45309', event: 'PERM REQ', dataset: 'Finance_Q2.xlsx', detail: 'Requested VIEW permission', status: 'pending', time: '—' },
-  { id: 8, timestamp: '2025-01-20 09:12:00', employee: 'Arjun', initials: 'AS', color: '#c84b2f', event: 'QUERY', dataset: 'Q3_Sales.csv', detail: '"What is the average deal size by region?"', status: 'ok', time: '213ms' },
-];
-
-const employees = ['All Employees', 'Arjun Sharma', 'Priya Mehta', 'Neha Kapoor', 'Rohan Kumar'];
-const eventTypes = ['All Event Types', 'Query', 'Upload', 'Login', 'Permission Change', 'Blocked', 'Clean'];
-const datasetOptions = ['All Datasets', 'Q3_Sales.csv', 'Customer_Data.xlsx', 'HR_Records.csv', 'Finance_Q2.xlsx'];
-const timeRanges = ['Last 7 days', 'Today', 'Last 30 days', 'Custom range'];
+import { getDatasets, getUsers } from '../../services/api';
 
 function getMethodClass(event) {
   switch (event) {
@@ -33,43 +18,125 @@ function getStatusBadge(status) {
     case 'ok': return <span className="admin-badge green">✓ OK</span>;
     case 'blocked': return <span className="admin-badge red">✗ No Perm</span>;
     case 'pending': return <span className="admin-badge amber">⏳ Pending</span>;
-    default: return <span className="admin-badge gray">{status}</span>;
+    default: return <span className="admin-badge gray">{status || 'OK'}</span>;
   }
 }
 
+function formatDate(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  return d.toLocaleString('en-IN', { 
+    day: '2-digit', 
+    month: '2-digit', 
+    year: 'numeric', 
+    hour: '2-digit', 
+    minute: '2-digit',
+    second: '2-digit'
+  });
+}
+
 export default function LogsPage() {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [datasets, setDatasets] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [employeeFilter, setEmployeeFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('all');
+
   const role = localStorage.getItem('role');
   if (role !== 'admin') return <Navigate to="/datasets" />;
 
-  const [employeeFilter, setEmployeeFilter] = useState('All Employees');
-  const [eventFilter, setEventFilter] = useState('All Event Types');
-  const [datasetFilter, setDatasetFilter] = useState('All Datasets');
-  const [timeFilter, setTimeFilter] = useState('Last 7 days');
-
-  const hasFilters = employeeFilter !== 'All Employees' || eventFilter !== 'All Event Types' || datasetFilter !== 'All Datasets' || timeFilter !== 'Last 7 days';
-
-  const clearFilters = () => {
-    setEmployeeFilter('All Employees');
-    setEventFilter('All Event Types');
-    setDatasetFilter('All Datasets');
-    setTimeFilter('Last 7 days');
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [datasetsRes, usersRes] = await Promise.all([
+        getDatasets(),
+        getUsers()
+      ]);
+      setDatasets(datasetsRes.data || []);
+      setUsers(usersRes.users || []);
+    } catch (err) {
+      console.error('Failed to fetch logs data:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const generateLogs = () => {
+    const logs = [];
+    let logId = 1;
+    
+    datasets.forEach(ds => {
+      logs.push({
+        id: logId++,
+        timestamp: ds.created_at || new Date().toISOString(),
+        employee: ds.uploaded_by || 'System',
+        initials: (ds.uploaded_by || 'S').charAt(0).toUpperCase(),
+        color: '#58a6ff',
+        event: 'UPLOAD',
+        dataset: ds.name || ds.filename || 'Dataset',
+        detail: `Uploaded · ${(ds.size || ds.file_size || 0) / 1024 / 1024 > 1 ? ((ds.size || ds.file_size) / 1024 / 1024).toFixed(1) + 'MB' : ((ds.size || ds.file_size) / 1024).toFixed(1) + 'KB'}`,
+        status: ds.status === 'completed' || ds.status === 'ready' ? 'ok' : 
+               ds.status === 'processing' ? 'pending' : 'blocked',
+        time: '—'
+      });
+      
+      if (ds.status === 'completed' || ds.status === 'ready') {
+        logs.push({
+          id: logId++,
+          timestamp: ds.updated_at || ds.created_at || new Date().toISOString(),
+          employee: ds.uploaded_by || 'System',
+          initials: (ds.uploaded_by || 'S').charAt(0).toUpperCase(),
+          color: '#3fb950',
+          event: 'CLEAN',
+          dataset: ds.name || ds.filename || 'Dataset',
+          detail: `Processing completed · ${ds.rows_count || 0} rows`,
+          status: 'ok',
+          time: '—'
+        });
+      }
+    });
+    
+    return logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  };
+
+  const logEntries = generateLogs();
+  const filteredLogs = logEntries.filter(log => {
+    if (employeeFilter !== 'All' && log.employee !== employeeFilter) return false;
+    if (statusFilter !== 'all' && log.status !== statusFilter) return false;
+    return true;
+  });
+
+  const hasFilters = employeeFilter !== 'All' || statusFilter !== 'all';
+
+  const clearFilters = () => {
+    setEmployeeFilter('All');
+    setStatusFilter('all');
+  };
+
+  const userOptions = ['All', ...users.map(u => u.name || u.email)];
+  const totalQueries = datasets.filter(d => d.status === 'completed' || d.status === 'ready').length;
+  const totalUploads = datasets.length;
+
   return (
-    <AdminLayout title="Activity Logs" subtitle="Every action by every employee">
+    <AdminLayout title="Activity Logs" subtitle="Dataset and user activity tracking">
       {/* Stats Row */}
       <div className="admin-three-col">
         <div className="admin-stat-card accent" style={{ padding: 16 }}>
-          <div className="admin-stat-value admin-count-animate" style={{ fontSize: 22 }}>8,421</div>
-          <div className="admin-stat-label">Total Queries (7d)</div>
+          <div className="admin-stat-value" style={{ fontSize: 22 }}>{totalUploads}</div>
+          <div className="admin-stat-label">Total Uploads</div>
+        </div>
+        <div className="admin-stat-card green" style={{ padding: 16 }}>
+          <div className="admin-stat-value" style={{ fontSize: 22 }}>{totalQueries}</div>
+          <div className="admin-stat-label">Ready Datasets</div>
         </div>
         <div className="admin-stat-card danger" style={{ padding: 16 }}>
-          <div className="admin-stat-value admin-count-animate" style={{ fontSize: 22 }}>12</div>
-          <div className="admin-stat-label">Blocked Queries (7d)</div>
-        </div>
-        <div className="admin-stat-card accent" style={{ padding: 16 }}>
-          <div className="admin-stat-value admin-count-animate" style={{ fontSize: 22 }}>41</div>
-          <div className="admin-stat-label">Dataset Events (7d)</div>
+          <div className="admin-stat-value" style={{ fontSize: 22 }}>{datasets.filter(d => d.status === 'processing').length}</div>
+          <div className="admin-stat-label">Processing</div>
         </div>
       </div>
 
@@ -77,24 +144,21 @@ export default function LogsPage() {
       <div className="admin-filter-bar">
         <Filter size={14} style={{ color: 'var(--text-muted)' }} />
         <select className="admin-filter-select" value={employeeFilter} onChange={e => setEmployeeFilter(e.target.value)}>
-          {employees.map(e => <option key={e} value={e}>{e}</option>)}
+          {userOptions.map(e => <option key={e} value={e}>{e}</option>)}
         </select>
-        <select className="admin-filter-select" value={eventFilter} onChange={e => setEventFilter(e.target.value)}>
-          {eventTypes.map(e => <option key={e} value={e}>{e}</option>)}
-        </select>
-        <select className="admin-filter-select" value={datasetFilter} onChange={e => setDatasetFilter(e.target.value)}>
-          {datasetOptions.map(e => <option key={e} value={e}>{e}</option>)}
-        </select>
-        <select className="admin-filter-select" value={timeFilter} onChange={e => setTimeFilter(e.target.value)}>
-          {timeRanges.map(e => <option key={e} value={e}>{e}</option>)}
+        <select className="admin-filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <option value="all">All Status</option>
+          <option value="ok">Completed</option>
+          <option value="pending">Processing</option>
+          <option value="blocked">Failed</option>
         </select>
         {hasFilters && (
           <button className="admin-btn admin-btn-ghost admin-btn-sm" onClick={clearFilters} style={{ marginLeft: 'auto' }}>
             <X size={12} /> Clear Filters
           </button>
         )}
-        <button className="admin-btn admin-btn-ghost admin-btn-sm" style={{ marginLeft: hasFilters ? 8 : 'auto' }}>
-          <Download size={12} /> Export Logs
+        <button className="admin-btn admin-btn-ghost admin-btn-sm" style={{ marginLeft: hasFilters ? 8 : 'auto' }} onClick={fetchData}>
+          <Loader size={12} style={loading ? { animation: 'spin 1s linear infinite' } : {}} /> Refresh
         </button>
       </div>
 
@@ -102,72 +166,81 @@ export default function LogsPage() {
       <div className="admin-section-header">
         <div>
           <div className="admin-section-title">All Events</div>
-          <div className="admin-section-sub">Showing {logEntries.length} of 1,284 events today</div>
+          <div className="admin-section-sub">Showing {filteredLogs.length} of {logEntries.length} events</div>
         </div>
       </div>
       <div className="admin-table-wrap">
-        <div className="admin-table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Timestamp</th>
-                <th>Employee</th>
-                <th>Event</th>
-                <th>Dataset</th>
-                <th>Detail</th>
-                <th>Status</th>
-                <th>Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logEntries.map((log, i) => (
-                <tr
-                  key={log.id}
-                  style={{ animation: `adminSlideIn 0.35s cubic-bezier(0.16,1,0.3,1) ${i * 0.04}s both` }}
-                >
-                  <td style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                    {log.timestamp}
-                  </td>
-                  <td>
-                    <div className="admin-user-cell">
-                      <div className="admin-u-avatar" style={{ background: log.color, width: 22, height: 22, fontSize: 9 }}>{log.initials}</div>
-                      <span style={{ fontSize: 12 }}>{log.employee}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <span className={`admin-log-method ${getMethodClass(log.event)}`}>{log.event}</span>
-                  </td>
-                  <td style={{ fontSize: 12 }}>{log.dataset}</td>
-                  <td style={{
-                    maxWidth: 220,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    color: 'var(--text-main)',
-                    fontSize: 12
-                  }}>
-                    {log.detail}
-                  </td>
-                  <td>{getStatusBadge(log.status)}</td>
-                  <td style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: 'var(--text-muted)' }}>{log.time}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="admin-pagination">
-          <div className="admin-page-info">Showing 1–{logEntries.length} of 1,284 events today</div>
-          <div className="admin-page-btns">
-            <button className="admin-page-btn">←</button>
-            <button className="admin-page-btn active">1</button>
-            <button className="admin-page-btn">2</button>
-            <button className="admin-page-btn">3</button>
-            <button className="admin-page-btn">…</button>
-            <button className="admin-page-btn">161</button>
-            <button className="admin-page-btn">→</button>
+        {loading ? (
+          <div style={{ padding: '40px', textAlign: 'center' }}>
+            <Loader size={24} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
           </div>
-        </div>
+        ) : filteredLogs.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            No activity logs found
+          </div>
+        ) : (
+          <>
+            <div className="admin-table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Employee</th>
+                    <th>Event</th>
+                    <th>Dataset</th>
+                    <th>Detail</th>
+                    <th>Status</th>
+                    <th>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredLogs.map((log, i) => (
+                    <tr
+                      key={log.id}
+                      style={{ animation: `adminSlideIn 0.35s cubic-bezier(0.16,1,0.3,1) ${i * 0.04}s both` }}
+                    >
+                      <td style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                        {formatDate(log.timestamp)}
+                      </td>
+                      <td>
+                        <div className="admin-user-cell">
+                          <div className="admin-u-avatar" style={{ background: log.color, width: 22, height: 22, fontSize: 9 }}>{log.initials}</div>
+                          <span style={{ fontSize: 12 }}>{log.employee}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`admin-log-method ${getMethodClass(log.event)}`}>{log.event}</span>
+                      </td>
+                      <td style={{ fontSize: 12 }}>{log.dataset}</td>
+                      <td style={{
+                        maxWidth: 220,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        color: 'var(--text-main)',
+                        fontSize: 12
+                      }}>
+                        {log.detail}
+                      </td>
+                      <td>{getStatusBadge(log.status)}</td>
+                      <td style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: 'var(--text-muted)' }}>{log.time}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {filteredLogs.length > 0 && (
+              <div className="admin-pagination">
+                <div className="admin-page-info">Showing 1–{filteredLogs.length} of {logEntries.length} events</div>
+              </div>
+            )}
+          </>
+        )}
       </div>
+
+      <style>{`
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      `}</style>
     </AdminLayout>
   );
 }

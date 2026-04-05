@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, Link, useLocation } from "react-router-dom";
 import axios from "axios";
 import "../styles/Auth.css";
 
@@ -62,11 +62,20 @@ const ChartIcon = () => (
 
 export default function Login() {
     const nav = useNavigate();
+    const location = useLocation();
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
+    const [infoMessage, setInfoMessage] = useState("");
+
+    useEffect(() => {
+        if (location.state?.pendingApproval) {
+            setInfoMessage(location.state.message || "Your account requires admin approval.");
+            window.history.replaceState({}, document.title);
+        }
+    }, [location.state]);
 
     const login = async () => {
         if (!email || !password) {
@@ -79,8 +88,15 @@ export default function Login() {
             const res = await axios.post("http://localhost:5000/api/auth/login", {
                 email,
                 password,
-                role: "user"
+                role: "employee"
             });
+
+            // Check if account is pending approval
+            if (res.data.pending) {
+                setError("Your account is pending approval. Please contact your administrator to activate your account.");
+                setLoading(false);
+                return;
+            }
 
             if (res.data.role === "admin") {
                 setError("This account is an admin. Please use the Admin login page.");
@@ -91,9 +107,15 @@ export default function Login() {
             localStorage.setItem("token", res.data.token);
             localStorage.setItem("role", res.data.role);
             localStorage.setItem("userName", res.data.name || email.split('@')[0]);
-            nav("/employee/datasets");
-        } catch {
-            setError("Invalid credentials. Please try again.");
+            nav("/employee/dashboard");
+        } catch (err) {
+            const msg = err.response?.data?.message || "Invalid credentials. Please try again.";
+            // Check if it's a pending approval error
+            if (err.response?.data?.pending) {
+                setError("Your account is pending approval. Please contact your administrator to activate your account.");
+            } else {
+                setError(msg);
+            }
             setLoading(false);
         }
     };
@@ -121,7 +143,7 @@ export default function Login() {
                     <p className="auth-subtitle">Sign in to access your data insights</p>
                     <div className="auth-role-badge user">
                         <UserIcon />
-                        User Access
+                        Employee Access
                     </div>
                 </div>
 
@@ -130,6 +152,13 @@ export default function Login() {
                         <div className="auth-error">
                             <AlertIcon />
                             {error}
+                        </div>
+                    )}
+
+                    {infoMessage && (
+                        <div className="auth-error" style={{ background: 'rgba(88, 166, 255, 0.15)', borderColor: 'var(--primary)', color: 'var(--primary)' }}>
+                            <AlertIcon />
+                            {infoMessage}
                         </div>
                     )}
 
@@ -177,7 +206,7 @@ export default function Login() {
 
                 <div className="auth-footer">
                     Don&apos;t have an account?{" "}
-                    <Link to="/signup/user">Create one</Link>
+                    <Link to="/signup/employee">Create one</Link>
                 </div>
             </div>
         </div>

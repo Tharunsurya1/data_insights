@@ -91,8 +91,8 @@ export default function AdminLogin() {
             localStorage.setItem("token", res.data.token);
             localStorage.setItem("role", res.data.role);
             nav("/admin");
-        } catch {
-            setError("Invalid credentials. Please try again.");
+        } catch (err) {
+            setError(err.response?.data?.message || "Invalid credentials. Please try again.");
             setLoading(false);
         }
     };
@@ -113,7 +113,7 @@ export default function AdminLogin() {
                 </Link>
 
                 <div className="auth-brand">
-                    <div className="brand-icon">
+                    <div className="brand-icon" style={{ background: 'linear-gradient(135deg, #b63d3d 0%, #f85149 100%)' }}>
                         <ChartIcon />
                     </div>
                     <h1>Admin Login</h1>

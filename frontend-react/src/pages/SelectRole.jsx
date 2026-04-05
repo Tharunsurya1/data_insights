@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/Auth.css";
 
@@ -49,6 +49,7 @@ export default function SelectRole() {
         <div className="role-selection-wrapper">
             <div className="orb-1" />
             <div className="orb-2" />
+            <div className="orb-3" />
 
             <div className="role-selection-card">
                 <div className="auth-brand">
@@ -56,19 +57,19 @@ export default function SelectRole() {
                         <ChartIcon />
                     </div>
                     <h1>Data Insights</h1>
-                    <p className="auth-subtitle">Choose how you want to continue</p>
+                    <p className="role-subtitle">Choose how you want to continue</p>
                 </div>
 
                 <div className="role-choices">
                     <div
-                        className={`role-choice ${selectedRole === "user" ? "selected" : ""}`}
-                        onClick={() => setSelectedRole("user")}
+                        className={`role-choice ${selectedRole === "employee" ? "selected" : ""}`}
+                        onClick={() => setSelectedRole("employee")}
                     >
                         <div className="role-choice-icon user-icon">
                             <UserIcon />
                         </div>
-                        <h3>User</h3>
-                        <p>Explore datasets, dashboards &amp; chat with your data</p>
+                        <h3>Employee</h3>
+                        <p>Upload datasets, analyze data &amp; generate insights</p>
                     </div>
 
                     <div
@@ -84,9 +85,9 @@ export default function SelectRole() {
                 </div>
 
                 <button
-                    className="role-continue-btn"
                     onClick={handleContinue}
                     disabled={!selectedRole}
+                    className={`role-continue-btn ${selectedRole === "admin" ? "admin" : ""}`}
                 >
                     Continue <ArrowRightIcon />
                 </button>

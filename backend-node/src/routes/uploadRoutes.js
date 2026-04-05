@@ -5,8 +5,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import { uploadDataset } from "../controllers/uploadController.js";
-import { protect } from "../middleware/authMiddleware.js";
 import { uploadLimiter } from "../middleware/rateLimiter.js";
+import { protect } from "../middleware/protect.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -54,7 +54,7 @@ const upload = multer({
   },
 });
 
-router.post("/upload", uploadLimiter, (req, res, next) => {
+router.post("/upload", protect, uploadLimiter, (req, res, next) => {
   req.uploadStartTime = Date.now();
   req.metrics = [];
   const startMsg = `[UPLOAD-START] dataset upload initiated`;

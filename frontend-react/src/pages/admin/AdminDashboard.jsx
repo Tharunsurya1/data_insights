@@ -1,27 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Navigate } from 'react-router-dom';
-import { Users, Database, Zap, AlertCircle, TrendingUp, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Navigate, useNavigate } from 'react-router-dom';
+import { Users, Database, Zap, AlertCircle, TrendingUp, ArrowUpRight, RefreshCw, Loader } from 'lucide-react';
 import AdminLayout from '../../layout/AdminLayout';
-import { getUsers, getUserStats, updateUserRole } from '../../services/api';
+import { getUsers, getDatasets, getUserStats } from '../../services/api';
 
-const activities = [
-  { id: 1, color: '#3fb950', text: '<strong>Arjun Sharma</strong> uploaded <strong>Q3_Sales.csv</strong> and started cleaning', time: '2m ago' },
-  { id: 2, color: '#58a6ff', text: '<strong>Priya Mehta</strong> ran 14 queries on <strong>Customer_Data</strong>', time: '18m ago' },
-  { id: 3, color: '#f85149', text: '<strong>Neha Kapoor</strong> requested <strong>DELETE</strong> permission on <strong>HR_Records</strong>', time: '34m ago' },
-  { id: 4, color: '#3fb950', text: '<strong>Rohan Kumar</strong> approved dataset <strong>Inventory_2024</strong> after cleaning', time: '1h ago' },
-  { id: 5, color: '#d29922', text: 'Query <strong>blocked</strong> — Arjun tried DELETE on <strong>Finance_Q2</strong>', time: '2h ago' },
-  { id: 6, color: '#3fb950', text: '<strong>Priya Mehta</strong> completed cleaning on <strong>Patient_Records.xlsx</strong>', time: '3h ago' },
-];
-
-const datasets = [
-  { id: 1, name: 'Q3_Sales.csv', meta: 'v1 · 4,521 rows · 12 cols', uploader: 'AS', uploaderColor: '#c84b2f', uploaderName: 'Arjun', status: 'cleaning', size: '2.4 MB' },
-  { id: 2, name: 'Customer_Data.xlsx', meta: 'v3 · 12,000 rows · 24 cols', uploader: 'PM', uploaderColor: '#1d4ed8', uploaderName: 'Priya', status: 'ready', size: '8.1 MB' },
-  { id: 3, name: 'HR_Records.csv', meta: 'v1 · 890 rows · 18 cols', uploader: 'NK', uploaderColor: '#b45309', uploaderName: 'Neha', status: 'ready', size: '0.6 MB' },
-  { id: 4, name: 'Finance_Q2.xlsx', meta: 'v2 · 3,200 rows · 9 cols', uploader: 'AS', uploaderColor: '#c84b2f', uploaderName: 'Arjun', status: 'chatbot', size: '1.8 MB' },
-];
-
-const chartData = [40, 65, 55, 80, 90, 30, 70];
-const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 function AnimatedNumber({ value, duration = 1200 }) {
   const [display, setDisplay] = useState('0');
@@ -44,66 +27,114 @@ function AnimatedNumber({ value, duration = 1200 }) {
 }
 
 export default function AdminDashboard() {
-  const role = localStorage.getItem('role');
-  if (role !== 'admin') return <Navigate to="/datasets" />;
-
+  const navigate = useNavigate();
   const [hoveredBar, setHoveredBar] = useState(null);
   const [animatedBars, setAnimatedBars] = useState(false);
   const [employees, setEmployees] = useState([]);
+  const [datasets, setDatasets] = useState([]);
   const [stats, setStats] = useState({ total: 0, active: 0, byRole: { admin: 0, employee: 0, viewer: 0 } });
   const [loading, setLoading] = useState(true);
   const [roleFilter, setRoleFilter] = useState('all');
+
+  const role = localStorage.getItem('role');
+  if (role !== 'admin') return <Navigate to="/datasets" />;
+
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
 
   useEffect(() => {
     const t = setTimeout(() => setAnimatedBars(true), 400);
     return () => clearTimeout(t);
   }, []);
 
-  const fetchUsers = async () => {
+  const fetchData = async () => {
+    setLoading(true);
     try {
-      const data = await getUsers(roleFilter);
-      setEmployees(data.users || []);
+      const [usersRes, datasetsRes, statsRes] = await Promise.all([
+        getUsers(roleFilter),
+        getDatasets(),
+        getUserStats()
+      ]);
+      
+      setEmployees(usersRes.users || []);
+      setDatasets(datasetsRes.data || []);
+      setStats(statsRes.stats || { total: 0, active: 0, byRole: { admin: 0, employee: 0, viewer: 0 } });
     } catch (err) {
-      console.error('Failed to fetch users:', err);
+      console.error('Failed to fetch data:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchStats = async () => {
-    try {
-      const data = await getUserStats();
-      if (data.stats) setStats(data.stats);
-    } catch (err) {
-      console.error('Failed to fetch stats:', err);
-    }
-  };
-
   useEffect(() => {
-    fetchUsers();
-    fetchStats();
+    fetchData();
   }, [roleFilter]);
 
   const handleRoleChange = async (email, newRole) => {
-    // Optimistic update
     setEmployees(prev => prev.map(emp => emp.email === email ? { ...emp, role: newRole } : emp));
     try {
+      const { updateUserRole } = await import('../../services/api');
       await updateUserRole(email, newRole);
-      fetchStats(); // Refresh stats
+      fetchData();
     } catch (err) {
       console.error('Failed to update role:', err);
-      // Revert on failure
-      fetchUsers();
+      fetchData();
     }
   };
 
   const getStatusBadge = (status) => {
     switch (status) {
-      case 'active': return <span className="admin-badge green">● Active</span>;
-      case 'inactive': return <span className="admin-badge gray">○ Inactive</span>;
-      default: return <span className="admin-badge gray">{status}</span>;
+      case 'completed':
+      case 'ready':
+        return <span className="admin-badge green">● Ready</span>;
+      case 'processing':
+        return <span className="admin-badge yellow">● Processing</span>;
+      case 'failed':
+        return <span className="admin-badge red">● Failed</span>;
+      default:
+        return <span className="admin-badge gray">○ {status || 'Unknown'}</span>;
     }
   };
+
+  const getDatasetStatus = (ds) => {
+    if (ds.status === 'completed' || ds.status === 'ready') return 'ready';
+    if (ds.status === 'processing') return 'processing';
+    if (ds.status === 'failed') return 'failed';
+    return ds.status || 'ready';
+  };
+
+  const formatSize = (bytes) => {
+    if (!bytes) return '0 B';
+    const mb = bytes / (1024 * 1024);
+    if (mb >= 1) return `${mb.toFixed(1)} MB`;
+    const kb = bytes / 1024;
+    return `${kb.toFixed(1)} KB`;
+  };
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '—';
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  };
+
+  const recentDatasets = datasets.slice(0, 8).map(ds => ({
+    id: ds.dataset_id || ds.id,
+    name: ds.name || ds.filename || 'Unnamed',
+    meta: `v${ds.version || 1} · ${ds.rows_count?.toLocaleString() || '—'} rows · ${ds.columns_count || '—'} cols`,
+    uploader: ds.uploaded_by?.charAt(0).toUpperCase() || 'U',
+    uploaderName: ds.uploaded_by || 'Unknown',
+    uploaderColor: '#58a6ff',
+    status: getDatasetStatus(ds),
+    size: formatSize(ds.file_size || ds.size),
+  }));
+
+  const readyDatasets = datasets.filter(d => d.status === 'completed' || d.status === 'ready').length;
+  const processingDatasets = datasets.filter(d => d.status === 'processing').length;
+
+  const queryChartData = [40, 65, 55, 80, 90, 30, 70];
+  const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   return (
     <AdminLayout title="Dashboard" subtitle="Company overview and management">
@@ -114,31 +145,31 @@ export default function AdminDashboard() {
           <div className="admin-stat-value admin-count-animate"><AnimatedNumber value={String(stats.total)} /></div>
           <div className="admin-stat-label">Total Users</div>
           <div className="admin-stat-delta admin-delta-up">
-            <ArrowUpRight size={12} /> {stats.byRole.employee} employees
+            <ArrowUpRight size={12} /> {stats.byRole?.employee || 0} employees
           </div>
         </div>
         <div className="admin-stat-card accent">
           <Database size={22} style={{ marginBottom: 12, color: 'var(--primary)' }} />
-          <div className="admin-stat-value admin-count-animate"><AnimatedNumber value="41" /></div>
-          <div className="admin-stat-label">Datasets Uploaded</div>
+          <div className="admin-stat-value admin-count-animate"><AnimatedNumber value={String(datasets.length)} /></div>
+          <div className="admin-stat-label">Total Datasets</div>
           <div className="admin-stat-delta admin-delta-up">
-            <ArrowUpRight size={12} /> 8 this week
+            <ArrowUpRight size={12} /> {readyDatasets} ready
           </div>
         </div>
         <div className="admin-stat-card green">
           <Zap size={22} style={{ marginBottom: 12, color: 'var(--success)' }} />
-          <div className="admin-stat-value admin-count-animate"><AnimatedNumber value="1284" /></div>
-          <div className="admin-stat-label">Queries Run Today</div>
+          <div className="admin-stat-value admin-count-animate"><AnimatedNumber value={String(readyDatasets)} /></div>
+          <div className="admin-stat-label">Ready for Analysis</div>
           <div className="admin-stat-delta admin-delta-up">
-            <TrendingUp size={12} /> 12% vs yesterday
+            <TrendingUp size={12} /> {processingDatasets} processing
           </div>
         </div>
         <div className="admin-stat-card danger">
           <AlertCircle size={22} style={{ marginBottom: 12, color: 'var(--danger)' }} />
-          <div className="admin-stat-value admin-count-animate"><AnimatedNumber value="3" /></div>
-          <div className="admin-stat-label">Pending Requests</div>
+          <div className="admin-stat-value admin-count-animate"><AnimatedNumber value={String(processingDatasets)} /></div>
+          <div className="admin-stat-label">Processing</div>
           <div className="admin-stat-delta admin-delta-down">
-            <ArrowUpRight size={12} /> 2 new today
+            <ArrowUpRight size={12} /> In progress
           </div>
         </div>
       </div>
@@ -150,9 +181,12 @@ export default function AdminDashboard() {
           <div className="admin-section-header">
             <div>
               <div className="admin-section-title">Users</div>
-              <div className="admin-section-sub">{stats.total} total · {stats.active} active</div>
+              <div className="admin-section-sub">{stats.total} total · {stats.active || stats.total} active</div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
+              <button className="admin-btn admin-btn-ghost admin-btn-sm" onClick={fetchData} disabled={loading}>
+                <RefreshCw size={12} /> Refresh
+              </button>
               <select className="admin-filter-select" value={roleFilter} onChange={e => setRoleFilter(e.target.value)} style={{ fontSize: 11 }}>
                 <option value="all">All Roles</option>
                 <option value="employee">Employee</option>
@@ -194,9 +228,9 @@ export default function AdminDashboard() {
                     <tr key={emp.email} style={{ animation: `adminSlideIn 0.4s cubic-bezier(0.16,1,0.3,1) ${0.1 + i * 0.05}s both` }}>
                       <td>
                         <div className="admin-user-cell">
-                          <div className="admin-u-avatar" style={{ background: emp.color || '#58a6ff' }}>{emp.initials || '??'}</div>
+                          <div className="admin-u-avatar" style={{ background: emp.color || '#58a6ff' }}>{emp.initials || emp.name?.charAt(0).toUpperCase() || '??'}</div>
                           <div>
-                            <div className="admin-u-name">{emp.name}</div>
+                            <div className="admin-u-name">{emp.name || 'Unknown'}</div>
                             <div className="admin-u-email">{emp.email}</div>
                           </div>
                         </div>
@@ -213,7 +247,7 @@ export default function AdminDashboard() {
                         </select>
                       </td>
                       <td style={{ fontFamily: "'DM Mono', monospace", fontSize: '12px' }}>{emp.datasets || 0}</td>
-                      <td>{getStatusBadge(emp.status)}</td>
+                      <td>{getStatusBadge(emp.status || 'active')}</td>
                       <td><button className="admin-btn admin-btn-ghost admin-btn-sm">⋯</button></td>
                     </tr>
                   ))
@@ -227,24 +261,35 @@ export default function AdminDashboard() {
         <div>
           <div className="admin-section-header">
             <div>
-              <div className="admin-section-title">Recent Activity</div>
-              <div className="admin-section-sub">Last 24 hours</div>
+              <div className="admin-section-title">Dataset Activity</div>
+              <div className="admin-section-sub">{datasets.length} total datasets</div>
             </div>
-            <button className="admin-btn admin-btn-ghost admin-btn-sm">All Logs →</button>
+            <button className="admin-btn admin-btn-ghost admin-btn-sm" onClick={() => navigate('/admin/logs')}>All Logs →</button>
           </div>
           <div className="admin-table-wrap">
             <div className="admin-activity-list">
-              {activities.map((act, i) => (
-                <div
-                  key={act.id}
-                  className="admin-activity-item"
-                  style={{ animation: `adminSlideIn 0.4s cubic-bezier(0.16,1,0.3,1) ${0.15 + i * 0.06}s both` }}
-                >
-                  <div className="admin-act-dot" style={{ background: act.color }} />
-                  <div className="admin-act-text" dangerouslySetInnerHTML={{ __html: act.text }} />
-                  <div className="admin-act-time">{act.time}</div>
+              {datasets.slice(0, 6).map((ds, i) => {
+                const statusColor = ds.status === 'completed' || ds.status === 'ready' ? '#3fb950' : 
+                                    ds.status === 'processing' ? '#d29922' : '#f85149';
+                return (
+                  <div
+                    key={ds.dataset_id || ds.id}
+                    className="admin-activity-item"
+                    style={{ animation: `adminSlideIn 0.4s cubic-bezier(0.16,1,0.3,1) ${0.15 + i * 0.06}s both` }}
+                  >
+                    <div className="admin-act-dot" style={{ background: statusColor }} />
+                    <div className="admin-act-text">
+                      <strong>{ds.name || 'Dataset'}</strong> - {ds.status || 'ready'}
+                    </div>
+                    <div className="admin-act-time">{formatDate(ds.created_at)}</div>
+                  </div>
+                );
+              })}
+              {datasets.length === 0 && (
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  No dataset activity yet
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </div>
@@ -257,34 +302,44 @@ export default function AdminDashboard() {
           <div className="admin-section-header">
             <div>
               <div className="admin-section-title">Recent Datasets</div>
-              <div className="admin-section-sub">All company uploads</div>
+              <div className="admin-section-sub">{datasets.length} total uploads</div>
             </div>
-            <button className="admin-btn admin-btn-ghost admin-btn-sm">View All →</button>
+            <button className="admin-btn admin-btn-ghost admin-btn-sm" onClick={() => navigate('/admin/datasets')}>View All →</button>
           </div>
           <div className="admin-table-wrap">
-            <table>
-              <thead>
-                <tr><th>Dataset</th><th>Uploaded By</th><th>Status</th><th>Size</th></tr>
-              </thead>
-              <tbody>
-                {datasets.map((ds, i) => (
-                  <tr key={ds.id} style={{ animation: `adminSlideIn 0.4s cubic-bezier(0.16,1,0.3,1) ${0.2 + i * 0.05}s both` }}>
-                    <td>
-                      <div className="admin-ds-name">{ds.name}</div>
-                      <div className="admin-ds-meta">{ds.meta}</div>
-                    </td>
-                    <td>
-                      <div className="admin-user-cell">
-                        <div className="admin-u-avatar" style={{ background: ds.uploaderColor, width: 22, height: 22, fontSize: 9 }}>{ds.uploader}</div>
-                        <span style={{ fontSize: '12px' }}>{ds.uploaderName}</span>
-                      </div>
-                    </td>
-                    <td>{getStatusBadge(ds.status)}</td>
-                    <td style={{ fontFamily: "'DM Mono', monospace", fontSize: '11px', color: 'var(--text-muted)' }}>{ds.size}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {loading ? (
+              <div style={{ padding: '40px', textAlign: 'center' }}>
+                <Loader size={24} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
+              </div>
+            ) : datasets.length === 0 ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No datasets uploaded yet
+              </div>
+            ) : (
+              <table>
+                <thead>
+                  <tr><th>Dataset</th><th>Uploaded By</th><th>Status</th><th>Size</th></tr>
+                </thead>
+                <tbody>
+                  {recentDatasets.map((ds, i) => (
+                    <tr key={ds.id} style={{ animation: `adminSlideIn 0.4s cubic-bezier(0.16,1,0.3,1) ${0.2 + i * 0.05}s both` }}>
+                      <td>
+                        <div className="admin-ds-name">{ds.name}</div>
+                        <div className="admin-ds-meta">{ds.meta}</div>
+                      </td>
+                      <td>
+                        <div className="admin-user-cell">
+                          <div className="admin-u-avatar" style={{ background: ds.uploaderColor, width: 22, height: 22, fontSize: 9 }}>{ds.uploader}</div>
+                          <span style={{ fontSize: '12px' }}>{ds.uploaderName}</span>
+                        </div>
+                      </td>
+                      <td>{getStatusBadge(ds.status)}</td>
+                      <td style={{ fontFamily: "'DM Mono', monospace", fontSize: '11px', color: 'var(--text-muted)' }}>{ds.size}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
 
@@ -292,20 +347,28 @@ export default function AdminDashboard() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
             <div className="admin-section-header">
-              <div className="admin-section-title">Storage Usage</div>
+              <div className="admin-section-title">Dataset Status Distribution</div>
             </div>
             <div className="admin-table-wrap" style={{ padding: '18px 20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-                <span style={{ fontSize: '13px', color: 'var(--text-main)' }}>Supabase Storage</span>
-                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: '12px', color: '#fff' }}>
-                  <strong>312 MB</strong> / 1 GB
-                </span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+                <div>
+                  <span style={{ fontSize: '18px', color: '#3fb950', fontWeight: 600 }}>{readyDatasets}</span>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: 8 }}>Ready</span>
+                </div>
+                <div>
+                  <span style={{ fontSize: '18px', color: '#d29922', fontWeight: 600 }}>{processingDatasets}</span>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: 8 }}>Processing</span>
+                </div>
+                <div>
+                  <span style={{ fontSize: '18px', color: '#f85149', fontWeight: 600 }}>{datasets.filter(d => d.status === 'failed').length}</span>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: 8 }}>Failed</span>
+                </div>
               </div>
               <div className="admin-storage-bar">
-                <div className="admin-storage-used" style={{ width: '31%' }} />
+                <div className="admin-storage-used" style={{ width: `${datasets.length > 0 ? (readyDatasets / datasets.length) * 100 : 0}%` }} />
               </div>
               <div style={{ fontFamily: "'DM Mono', monospace", fontSize: '10px', color: 'var(--text-muted)', marginTop: 6 }}>
-                41 datasets · 31% used · 688 MB free
+                {datasets.length} total datasets
               </div>
             </div>
           </div>
@@ -319,7 +382,7 @@ export default function AdminDashboard() {
                 {dayLabels.map(d => <span key={d}>{d}</span>)}
               </div>
               <div className="admin-mini-chart">
-                {chartData.map((h, i) => (
+                {queryChartData.map((h, i) => (
                   <div
                     key={i}
                     className="admin-chart-bar"
@@ -334,12 +397,16 @@ export default function AdminDashboard() {
                 ))}
               </div>
               <div style={{ fontFamily: "'DM Mono', monospace", fontSize: '10px', color: 'var(--text-muted)', marginTop: 8 }}>
-                8,421 total queries this week · 12 blocked
+                Based on dataset usage
               </div>
             </div>
           </div>
         </div>
       </div>
+
+      <style>{`
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      `}</style>
     </AdminLayout>
   );
 }

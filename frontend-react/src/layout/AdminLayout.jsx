@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   LayoutDashboard, FileText, Shield, Users, Database,
-  Settings, LogOut, Search, Bell, ChevronDown, Activity,
+  Settings, LogOut, Search, Bell, Activity,
   Menu, X
 } from 'lucide-react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
@@ -25,9 +25,7 @@ const navItems = [
 export default function AdminLayout({ children, title, subtitle }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const role = localStorage.getItem('role');
   const email = localStorage.getItem('email') || 'admin@datainsights.ai';
   const initials = email.slice(0, 2).toUpperCase();
 

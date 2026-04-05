@@ -290,7 +290,15 @@ const QueryAssistant = ({ datasetId }) => {
 
     try {
       const response = await askQuery(datasetId, msg);
-      const answer   = response?.answer || "I'm sorry, I couldn't compute an answer for that.";
+      let answer = response?.answer || "I'm sorry, I couldn't compute an answer for that.";
+      
+      // Check for image-related errors
+      if (answer.toLowerCase().includes("cannot read image") || 
+          answer.toLowerCase().includes("does not support image") ||
+          answer.toLowerCase().includes("model does not support image input")) {
+        answer = "⚠️ **Image Input Not Supported**\n\nThe AI model does not support image input. Please ask questions using text only. For example:\n\n- 'What is the total revenue by region?'\n- 'Show me top 5 products'\n- 'What are the monthly trends?'\n\nYou can also switch to a text-capable model in the backend settings if available.";
+      }
+      
       const botMsgId = msgIdCounter + 1;
       setMsgIdCounter(c => c + 2);
 

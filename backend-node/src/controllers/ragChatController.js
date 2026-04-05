@@ -57,10 +57,21 @@ export const ragChat = async (req, res) => {
       backend,
     });
 
+    const answer = response.data.answer || "No answer generated.";
+    
+    if (answer.includes("AI temporarily unavailable") || answer.includes("does not support image") || answer.includes("Cannot read image")) {
+      return res.json({
+        success: true,
+        source: "fallback",
+        answer: "The AI model does not support image input. Please use a text-only model or switch to the query engine for dataset insights.",
+        backend: "fallback",
+      });
+    }
+
     return res.json({
       success: true,
       source: "rag-engine",
-      answer: response.data.answer || "No answer generated.",
+      answer: answer,
       backend: response.data.backend || backend,
     });
   } catch (err) {
@@ -78,10 +89,20 @@ export const ragChat = async (req, res) => {
 
     const errMsg =
       err.response?.data?.error || err.message || "Unknown error";
+      
+    if (errMsg.includes("does not support image") || errMsg.includes("Cannot read image")) {
+      return res.json({
+        success: true,
+        source: "fallback",
+        answer: "The selected AI model does not support image input. Please use a different model (e.g., mistral, llama3, phi3) or use the query engine for dataset insights.",
+        backend: "fallback",
+      });
+    }
+    
     return res.json({
       success: true,
       source: "fallback",
-      answer: `RAG engine error: ${errMsg}. Ensure Ollama is running (ollama serve) and a model is installed (ollama pull llama3.2).`,
+      answer: `RAG engine error: ${errMsg}. Ensure Ollama is running (ollama serve) and a text-capable model is installed.`,
       backend: "fallback",
     });
   }

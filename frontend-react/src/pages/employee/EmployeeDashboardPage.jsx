@@ -1,304 +1,502 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend, AreaChart, Area
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, Cell, PieChart, Pie, AreaChart, Area
 } from 'recharts';
-import { MessageSquare, Download, TrendingUp, TrendingDown, Users, IndianRupee, Package, Star } from 'lucide-react';
+import {
+  Upload, Database, BarChart3, MessageSquare, Sparkles, FileText,
+  ArrowRight, Clock, CheckCircle2, AlertCircle, TrendingUp,
+  Loader, RefreshCw, Activity, Layers, HardDrive
+} from 'lucide-react';
 import EmployeeLayout from '../../layout/EmployeeLayout';
+import { getDatasets, getUserStats } from '../../services/api';
 
-const COLORS = ['#58a6ff', '#3fb950', '#bc8cff', '#d29922'];
-
-const regionData = [
-  { name: 'North', value: 92 },
-  { name: 'South', value: 74 },
-  { name: 'East', value: 110 },
-  { name: 'West', value: 58 },
-  { name: 'Central', value: 82 },
-];
-
-const segmentData = [
-  { name: 'Enterprise', value: 40, color: '#58a6ff' },
-  { name: 'SMB', value: 24, color: '#3fb950' },
-  { name: 'Startup', value: 16, color: '#bc8cff' },
-  { name: 'Individual', value: 20, color: '#d29922' },
-];
-
-const monthlyData = [
-  { month: 'Jan', revenue: 28 }, { month: 'Feb', revenue: 32 }, { month: 'Mar', revenue: 30 },
-  { month: 'Apr', revenue: 35 }, { month: 'May', revenue: 38 }, { month: 'Jun', revenue: 42 },
-  { month: 'Jul', revenue: 40 }, { month: 'Aug', revenue: 48 }, { month: 'Sep', revenue: 45 },
-  { month: 'Oct', revenue: 52 }, { month: 'Nov', revenue: 58 }, { month: 'Dec', revenue: 62 },
-];
-
-const kpis = [
-  { icon: Users, label: 'Total Customers', value: '12,450', delta: '+342 this month', up: true },
-  { icon: IndianRupee, label: 'Total Revenue', value: '₹4.2Cr', delta: '+12.4% YoY', up: true },
-  { icon: Package, label: 'Active Orders', value: '3,841', delta: '-8 this week', up: false },
-  { icon: Star, label: 'Retention Rate', value: '68.2%', delta: '+3.1pp', up: true },
-];
-
-const insights = [
-  { tag: 'Revenue', text: 'East region contributes <strong>₹1.1Cr</strong>, the highest of all regions — <strong>26% of total revenue</strong>. Consider allocating more sales resources here.' },
-  { tag: 'Retention', text: 'Retention has improved by <strong>3.1 percentage points</strong> vs last quarter. Enterprise segment shows the highest retention at <strong>84%</strong>.' },
-  { tag: 'Trend', text: 'Revenue trend shows <strong>consistent growth</strong> from Jul onward. December is projected to be the strongest month based on current trajectory.' },
-];
-
-const datasets = [
-  { name: 'Customer_Data', version: 'v3', active: true },
-  { name: 'HR_Records', version: 'v2' },
-  { name: 'Inventory_2024', version: 'v1' },
-  { name: 'Q3_Sales', version: 'cleaning…', cleaning: true },
-];
+const COLORS = ['#58a6ff', '#3fb950', '#bc8cff', '#d29922', '#f85149', '#79c0ff', '#d2a8ff', '#ffa657'];
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   return (
     <div style={{
-      background: 'rgba(22,27,34,0.95)', border: '1px solid var(--border-color)',
-      borderRadius: 8, padding: '8px 12px', fontSize: 12,
+      background: 'rgba(22,27,34,0.96)', border: '1px solid var(--border-color)',
+      borderRadius: 8, padding: '8px 12px', fontSize: 12, maxWidth: 220,
     }}>
-      <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>{label}</div>
+      {label && <div style={{ color: 'var(--text-muted)', marginBottom: 4, fontSize: 11 }}>{label}</div>}
       {payload.map((p, i) => (
         <div key={i} style={{ color: p.color || '#58a6ff', fontWeight: 600 }}>
-          {p.name}: {typeof p.value === 'number' && p.name?.includes('Revenue') ? `₹${p.value}L` : p.value}
+          {p.name}: {typeof p.value === 'number' ? p.value.toLocaleString() : p.value}
         </div>
       ))}
     </div>
   );
 };
 
+const StatusBadge = ({ status }) => {
+  const config = {
+    completed: { color: '#3fb950', bg: 'rgba(63,185,80,0.1)', icon: CheckCircle2, label: 'Ready' },
+    processing: { color: '#d29922', bg: 'rgba(210,153,34,0.1)', icon: Loader, label: 'Processing' },
+    failed: { color: '#f85149', bg: 'rgba(248,81,73,0.1)', icon: AlertCircle, label: 'Failed' },
+    ready: { color: '#3fb950', bg: 'rgba(63,185,80,0.1)', icon: CheckCircle2, label: 'Ready' },
+  };
+  const c = config[status] || config.completed;
+  const Icon = c.icon;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px',
+      borderRadius: 20, background: c.bg, color: c.color,
+      fontSize: 10, fontWeight: 600, fontFamily: "'DM Mono', monospace",
+    }}>
+      <Icon size={10} style={status === 'processing' ? { animation: 'spin 1s linear infinite' } : {}} />
+      {c.label}
+    </span>
+  );
+};
+
 const EmployeeDashboardPage = () => {
   const navigate = useNavigate();
-  const [activeDataset, setActiveDataset] = useState(0);
-  const [cleaningMode, setCleaningMode] = useState(false);
+  const userName = localStorage.getItem('userName') || 'Employee';
+  const [datasets, setDatasets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    loadDashboard();
+  }, []);
+
+  const loadDashboard = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await getDatasets();
+      if (res.success && res.data) {
+        setDatasets(res.data);
+      }
+    } catch (err) {
+      console.warn('Dashboard load error:', err.message);
+    }
+    setLoading(false);
+  };
+
+  // Compute stats from real datasets
+  const totalDatasets = datasets.length;
+  const readyDatasets = datasets.filter(d => d.status === 'completed' || d.status === 'ready');
+  const processingDatasets = datasets.filter(d => d.status === 'processing');
+  const failedDatasets = datasets.filter(d => d.status === 'failed');
+
+  // Status distribution for pie chart
+  const statusData = [
+    { name: 'Ready', value: readyDatasets.length, color: '#3fb950' },
+    { name: 'Processing', value: processingDatasets.length, color: '#d29922' },
+    { name: 'Failed', value: failedDatasets.length, color: '#f85149' },
+  ].filter(d => d.value > 0);
+
+  // Timeline data — group datasets by creation date
+  const timelineData = (() => {
+    const grouped = {};
+    datasets.forEach(d => {
+      const date = d.created_at ? new Date(d.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'Unknown';
+      grouped[date] = (grouped[date] || 0) + 1;
+    });
+    return Object.entries(grouped)
+      .map(([date, count]) => ({ date, uploads: count }))
+      .slice(-7);
+  })();
+
+  // Greeting based on time of day
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+
+  // Quick actions
+  const quickActions = [
+    { icon: Upload, label: 'Upload Dataset', desc: 'Upload CSV or Excel files', path: '/employee/upload', color: '#58a6ff' },
+    { icon: Database, label: 'My Datasets', desc: 'View all processed datasets', path: '/employee/datasets', color: '#3fb950' },
+    { icon: Sparkles, label: 'Analysis', desc: 'Deep-dive into your data', path: '/employee/analysis', color: '#bc8cff' },
+    { icon: BarChart3, label: 'Visualization', desc: 'Charts, graphs & filters', path: '/employee/visualization', color: '#d29922' },
+    { icon: MessageSquare, label: 'AI Chatbot', desc: 'Ask questions about data', path: '/employee/chat', color: '#79c0ff' },
+    { icon: FileText, label: 'Summary', desc: 'Executive report generation', path: '/employee/summary', color: '#d2a8ff' },
+  ];
 
   return (
     <EmployeeLayout>
       <div className="emp-topbar">
         <div>
           <div className="emp-topbar-title">Dashboard</div>
-          <div className="emp-topbar-sub">Auto-generated analytics and insights</div>
+          <div className="emp-topbar-sub">Enterprise Analytics Overview</div>
         </div>
         <div className="emp-topbar-actions">
-          <button className="emp-btn emp-btn-ghost emp-btn-sm"><Download size={12} /> Export PDF</button>
-          <button className="emp-btn emp-btn-primary emp-btn-sm" onClick={() => navigate('/employee/chat')}>
-            <MessageSquare size={12} /> Ask Chatbot →
+          <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={loadDashboard}>
+            <RefreshCw size={12} /> Refresh
+          </button>
+          <button className="emp-btn emp-btn-primary emp-btn-sm" onClick={() => navigate('/employee/upload')}>
+            <Upload size={12} /> Upload New Dataset
           </button>
         </div>
       </div>
 
       <div className="emp-content">
-        {/* Dataset Selector */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 24, flexWrap: 'wrap' }}>
-          {datasets.map((ds, i) => (
-            <button
-              key={i}
-              onClick={() => { if (!ds.cleaning) { setActiveDataset(i); setCleaningMode(false); } }}
-              style={{
-                padding: '8px 16px', borderRadius: 20, fontFamily: "'DM Mono', monospace", fontSize: 11,
-                cursor: ds.cleaning ? 'not-allowed' : 'pointer',
-                border: `1px solid ${i === activeDataset && !ds.cleaning ? 'var(--primary)' : 'var(--border-color)'}`,
-                background: i === activeDataset && !ds.cleaning ? 'rgba(88,166,255,0.08)' : 'rgba(22,27,34,0.7)',
-                color: ds.cleaning ? 'var(--warning)' : i === activeDataset ? 'var(--primary)' : 'var(--text-muted)',
-                opacity: ds.cleaning ? 0.6 : 1,
-                transition: 'all 0.15s',
-              }}
-            >
-              {ds.name} · {ds.version}
-            </button>
-          ))}
+
+        {/* ── Welcome Banner ── */}
+        <div className="glass-panel" style={{
+          padding: '28px 32px', marginBottom: 20,
+          background: 'linear-gradient(135deg, rgba(88,166,255,0.08) 0%, rgba(188,140,255,0.05) 100%)',
+          borderLeft: '3px solid #58a6ff',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: '#fff', marginBottom: 4 }}>
+                {greeting}, {userName} 👋
+              </div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.6 }}>
+                {totalDatasets === 0
+                  ? 'Welcome to DataInsights.ai! Upload your first dataset to get started with automated analytics.'
+                  : `You have ${totalDatasets} dataset${totalDatasets !== 1 ? 's' : ''} — ${readyDatasets.length} ready for analysis${processingDatasets.length > 0 ? `, ${processingDatasets.length} processing` : ''}.`
+                }
+              </div>
+            </div>
+            {totalDatasets === 0 && (
+              <button className="emp-btn emp-btn-primary" onClick={() => navigate('/employee/upload')}
+                style={{ padding: '10px 24px', fontSize: 13, flexShrink: 0 }}>
+                <Upload size={16} /> Upload First Dataset
+              </button>
+            )}
+          </div>
         </div>
 
-        {cleaningMode ? (
-          <div style={{
-            background: 'linear-gradient(135deg, rgba(210,153,34,0.06), rgba(210,153,34,0.02))',
-            border: '1px solid rgba(210,153,34,0.2)', borderRadius: 16,
-            padding: 48, textAlign: 'center', marginBottom: 24,
-          }}>
-            <div style={{ fontSize: 48, marginBottom: 16, animation: 'float 3s ease-in-out infinite' }}>⚙️</div>
-            <div style={{ fontSize: 22, fontWeight: 600, color: 'var(--warning)', marginBottom: 8 }}>Dataset Cleaning in Progress</div>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.8 }}>
-              Q3_Sales_Report.csv is being cleaned in the background.<br />
-              Your dashboard will be ready as soon as cleaning completes.<br /><br />
-              <span style={{ color: 'var(--primary)' }}>You can continue working on other datasets while this runs.</span>
-            </div>
-            <div style={{ margin: '20px auto', maxWidth: 400 }}>
-              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--warning)', marginBottom: 4 }}>Step 2/5 — Removing Duplicates</div>
-              <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 6, overflow: 'hidden' }}>
-                <div style={{ height: '100%', background: 'linear-gradient(90deg, var(--warning), #fcd34d)', borderRadius: 6, width: '40%', animation: 'progress 2s ease-in-out infinite alternate' }} />
+        {/* ── KPI Stats Cards ── */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: 12, marginBottom: 20,
+        }}>
+          {[
+            { icon: Database, label: 'Total Datasets', value: totalDatasets, color: '#58a6ff', sub: 'All time' },
+            { icon: CheckCircle2, label: 'Ready for Analysis', value: readyDatasets.length, color: '#3fb950', sub: totalDatasets > 0 ? `${Math.round((readyDatasets.length/totalDatasets)*100)}%` : '0%' },
+            { icon: Loader, label: 'Processing', value: processingDatasets.length, color: '#d29922', sub: 'In queue' },
+            { icon: AlertCircle, label: 'Failed', value: failedDatasets.length, color: '#f85149', sub: totalDatasets > 0 ? `${Math.round((failedDatasets.length/totalDatasets)*100)}%` : '0%' },
+          ].map((kpi, i) => {
+            const Icon = kpi.icon;
+            return (
+              <div key={i} className="glass-panel" style={{
+                padding: '18px 20px',
+                animation: `adminFadeUp 0.4s ease both`,
+                animationDelay: `${i * 0.06}s`,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <Icon size={16} color={kpi.color} />
+                  <span style={{
+                    fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase',
+                    fontFamily: "'DM Mono', monospace", letterSpacing: 0.5,
+                  }}>{kpi.label}</span>
+                </div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: kpi.color }}>{kpi.value}</div>
+                <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 4, fontFamily: "'DM Mono', monospace" }}>{kpi.sub}</div>
               </div>
-              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginTop: 6, textAlign: 'right' }}>40% complete</div>
+            );
+          })}
+        </div>
+
+        {/* ── Quick Stats Summary ── */}
+        {totalDatasets > 0 && (
+          <div className="glass-panel" style={{ padding: '14px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Activity size={14} color="#58a6ff" />
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>Dashboard Analytics</span>
             </div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 20 }}>
-              <button className="emp-btn emp-btn-ghost" onClick={() => navigate('/employee/cleaning')}>View Cleaning Progress →</button>
-              <button className="emp-btn emp-btn-ghost" onClick={() => setCleaningMode(false)}>Switch to Ready Dataset</button>
+            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#58a6ff' }}>{totalDatasets}</div>
+                <div style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: "'DM Mono', monospace" }}>Total Datasets</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#3fb950' }}>{readyDatasets.length}</div>
+                <div style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: "'DM Mono', monospace" }}>Ready</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#d29922' }}>{processingDatasets.length}</div>
+                <div style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: "'DM Mono', monospace" }}>Processing</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#bc8cff' }}>{timelineData.length > 0 ? timelineData.reduce((a,b) => a + b.uploads, 0) : 0}</div>
+                <div style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: "'DM Mono', monospace" }}>This Week</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#f85149' }}>{failedDatasets.length}</div>
+                <div style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: "'DM Mono', monospace" }}>Failed</div>
+              </div>
             </div>
           </div>
-        ) : (
-          <>
-            {/* KPIs */}
-            <div style={{
-              display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-              gap: 14, marginBottom: 24,
-            }}>
-              {kpis.map((kpi, i) => {
-                const Icon = kpi.icon;
-                return (
-                  <div key={i} className="glass-panel" style={{
-                    padding: 18, animation: 'adminFadeUp 0.4s ease both',
-                    animationDelay: `${i * 0.04}s`,
-                  }}>
-                    <div style={{ fontSize: 20, marginBottom: 10 }}><Icon size={20} color="var(--text-muted)" /></div>
-                    <div style={{ fontSize: 26, fontWeight: 600, color: '#fff', lineHeight: 1 }}>{kpi.value}</div>
-                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginTop: 4, textTransform: 'uppercase' }}>{kpi.label}</div>
-                    <div style={{
-                      fontFamily: "'DM Mono', monospace", fontSize: 10, marginTop: 8,
-                      color: kpi.up ? 'var(--success)' : 'var(--danger)',
-                      display: 'flex', alignItems: 'center', gap: 4,
-                    }}>
-                      {kpi.up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                      {kpi.delta}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Charts Row 1 */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
-              {/* Bar Chart */}
-              <div className="glass-panel" style={{ padding: '18px 20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Revenue by Region</div>
-                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>All regions · Current period</div>
-                  </div>
-                  <select className="admin-filter-select" style={{ fontSize: 10 }}>
-                    <option>By Region</option><option>By Month</option>
-                  </select>
-                </div>
-                <ResponsiveContainer width="100%" height={180}>
-                  <BarChart data={regionData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                    <XAxis dataKey="name" tick={{ fill: '#3d4f6e', fontSize: 9 }} />
-                    <YAxis tick={{ fill: '#3d4f6e', fontSize: 9 }} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Bar dataKey="value" name="Revenue" radius={[4, 4, 0, 0]}>
-                      {regionData.map((_, i) => (
-                        <Cell key={i} fill={COLORS[i % COLORS.length]} opacity={0.85} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Pie Chart */}
-              <div className="glass-panel" style={{ padding: '18px 20px' }}>
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Customer Segments</div>
-                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>Distribution by segment type</div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-                  <ResponsiveContainer width={160} height={160}>
-                    <PieChart>
-                      <Pie data={segmentData} dataKey="value" nameKey="name" innerRadius={40} outerRadius={70} paddingAngle={2}>
-                        {segmentData.map((entry, i) => (
-                          <Cell key={i} fill={entry.color} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {segmentData.map((s, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-main)' }}>
-                        <div style={{ width: 10, height: 10, borderRadius: 3, background: s.color, flexShrink: 0 }} />
-                        {s.name}
-                        <span style={{ marginLeft: 'auto', color: '#fff', fontWeight: 600 }}>{s.value}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Area Chart - Wide */}
-              <div className="glass-panel" style={{ padding: '18px 20px', gridColumn: 'span 2' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Monthly Revenue Trend</div>
-                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>Jan 2024 — Dec 2024</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="emp-btn emp-btn-ghost emp-btn-sm">Revenue</button>
-                    <button className="emp-btn emp-btn-ghost emp-btn-sm">Orders</button>
-                  </div>
-                </div>
-                <ResponsiveContainer width="100%" height={140}>
-                  <AreaChart data={monthlyData}>
-                    <defs>
-                      <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#58a6ff" stopOpacity={0.3} />
-                        <stop offset="100%" stopColor="#58a6ff" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                    <XAxis dataKey="month" tick={{ fill: '#3d4f6e', fontSize: 9 }} />
-                    <YAxis tick={{ fill: '#3d4f6e', fontSize: 9 }} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#58a6ff" fill="url(#areaGrad)" strokeWidth={2.5} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* AI Insights */}
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', marginBottom: 12 }}>✦ AI-Generated Insights</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-                {insights.map((ins, i) => (
-                  <div key={i} className="glass-panel" style={{ padding: '14px 16px', animation: 'adminFadeUp 0.4s ease both', animationDelay: `${i * 0.06}s` }}>
-                    <span style={{
-                      fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--primary)',
-                      background: 'rgba(88,166,255,0.08)', padding: '2px 8px', borderRadius: 10,
-                      display: 'inline-block', marginBottom: 8,
-                    }}>{ins.tag}</span>
-                    <div style={{ fontSize: 12.5, color: 'var(--text-main)', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: ins.text }} />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Chatbot CTA */}
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(88,166,255,0.08), rgba(188,140,255,0.05))',
-              border: '1px solid rgba(88,166,255,0.2)', borderRadius: 12, padding: '18px 22px',
-              display: 'flex', alignItems: 'center', gap: 16, marginTop: 20,
-            }}>
-              <div style={{ fontSize: 28 }}>◎</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', marginBottom: 3 }}>Want deeper insights?</div>
-                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)' }}>Ask the chatbot anything about this dataset in natural language</div>
-              </div>
-              <button className="emp-btn emp-btn-primary" onClick={() => navigate('/employee/chat')}>Open Chatbot →</button>
-            </div>
-          </>
         )}
 
-        {/* Demo toggle */}
-        <div style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 100 }}>
-          <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={() => setCleaningMode(!cleaningMode)}
-            style={{ fontFamily: "'DM Mono', monospace", fontSize: 10 }}>
-            Toggle Cleaning State
-          </button>
+        {/* ── Quick Actions Grid ── */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{
+            fontSize: 14, fontWeight: 700, color: '#fff', marginBottom: 12,
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <Activity size={16} color="#58a6ff" /> Quick Actions
+          </div>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+            gap: 10,
+          }}>
+            {quickActions.map((action, i) => {
+              const Icon = action.icon;
+              return (
+                <div key={i} className="glass-panel" onClick={() => navigate(action.path)}
+                  style={{
+                    padding: '18px 20px', cursor: 'pointer',
+                    transition: 'all 0.2s ease', borderLeft: `2px solid ${action.color}`,
+                    animation: `adminFadeUp 0.4s ease both`,
+                    animationDelay: `${0.3 + i * 0.05}s`,
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = 'rgba(88,166,255,0.05)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = '';
+                    e.currentTarget.style.transform = '';
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                    <Icon size={18} color={action.color} />
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{action.label}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>{action.desc}</div>
+                  <div style={{ marginTop: 8, fontSize: 10, color: action.color, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    Open <ArrowRight size={10} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
+
+        {/* ── Charts Row ── */}
+        {totalDatasets > 0 && (
+          <div style={{
+            display: 'grid', gridTemplateColumns: statusData.length > 1 ? '1.5fr 1fr' : '1fr',
+            gap: 12, marginBottom: 20,
+          }}>
+            {/* Upload Timeline */}
+            {timelineData.length > 1 && (
+              <div className="glass-panel" style={{ padding: '16px 20px' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#fff', marginBottom: 4 }}>Upload Activity</div>
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginBottom: 12 }}>
+                  Datasets uploaded over time
+                </div>
+                <div style={{ height: 160 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={timelineData}>
+                      <defs>
+                        <linearGradient id="dashGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#58a6ff" stopOpacity={0.5} />
+                          <stop offset="50%" stopColor="#58a6ff" stopOpacity={0.25} />
+                          <stop offset="100%" stopColor="#58a6ff" stopOpacity={0.02} />
+                        </linearGradient>
+                        <linearGradient id="dashStroke" x1="0" y1="0" x2="1" y2="0">
+                          <stop offset="0%" stopColor="#58a6ff" />
+                          <stop offset="100%" stopColor="#3fb950" />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                      <XAxis dataKey="date" tick={{ fill: '#3d4f6e', fontSize: 9 }} />
+                      <YAxis tick={{ fill: '#3d4f6e', fontSize: 9 }} allowDecimals={false} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Area type="monotone" dataKey="uploads" name="Uploads" stroke="url(#dashStroke)" fill="url(#dashGrad)" strokeWidth={3} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {/* Status Distribution */}
+            {statusData.length > 1 && (
+              <div className="glass-panel" style={{ padding: '16px 20px' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#fff', marginBottom: 4 }}>Dataset Status</div>
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginBottom: 12 }}>
+                  Current pipeline distribution
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <div style={{ width: 130, height: 130 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <defs>
+                          {statusData.map((entry, i) => (
+                            <linearGradient key={i} id={`dashPieGrad${i}`} x1="0" y1="0" x2="1" y2="1">
+                              <stop offset="0%" stopColor={entry.color} stopOpacity={1} />
+                              <stop offset="100%" stopColor={entry.color} stopOpacity={0.6} />
+                            </linearGradient>
+                          ))}
+                        </defs>
+                        <Pie data={statusData} dataKey="value" nameKey="name" innerRadius={40} outerRadius={60} paddingAngle={3}
+                          label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}
+                          labelLine={{ stroke: '#6b7694', strokeWidth: 1 }}>
+                          {statusData.map((entry, i) => (
+                            <Cell key={i} fill={`url(#dashPieGrad${i})`} stroke="rgba(22,27,34,0.5)" strokeWidth={2} />
+                          ))}
+                        </Pie>
+                        <Tooltip content={<CustomTooltip />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
+                    {statusData.map((s, i) => {
+                      const pct = totalDatasets > 0 ? Math.round((s.value / totalDatasets) * 100) : 0;
+                      return (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+                          <div style={{ width: 10, height: 10, borderRadius: 3, background: s.color, flexShrink: 0 }} />
+                          <span style={{ color: 'var(--text-muted)', flex: 1 }}>{s.name}</span>
+                          <span style={{ fontFamily: "'DM Mono', monospace", fontWeight: 700, color: s.color }}>{s.value} <span style={{ fontSize: 9, opacity: 0.6 }}>({pct}%)</span></span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Recent Datasets Table ── */}
+        <div className="glass-panel" style={{ overflow: 'hidden', marginBottom: 20 }}>
+          <div style={{
+            padding: '14px 20px', borderBottom: '1px solid var(--border-color)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Recent Datasets</div>
+              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
+                {totalDatasets} total · {readyDatasets.length} ready for analysis
+              </div>
+            </div>
+            <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={() => navigate('/employee/datasets')}>
+              View All <ArrowRight size={10} />
+            </button>
+          </div>
+
+          {loading ? (
+            <div style={{ padding: '3rem', textAlign: 'center' }}>
+              <Loader size={32} color="var(--primary)" style={{ animation: 'spin 1s linear infinite', marginBottom: 12 }} />
+              <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading datasets...</p>
+            </div>
+          ) : datasets.length === 0 ? (
+            <div style={{ padding: '3rem', textAlign: 'center' }}>
+              <Database size={40} color="var(--text-muted)" style={{ marginBottom: 12, opacity: 0.4 }} />
+              <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>No datasets uploaded yet</p>
+              <button className="emp-btn emp-btn-primary" onClick={() => navigate('/employee/upload')}>
+                <Upload size={14} /> Upload Your First Dataset
+              </button>
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Dataset Name</th>
+                    <th style={thStyle}>Status</th>
+                    <th style={thStyle}>Uploaded</th>
+                    <th style={thStyle}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {datasets.slice(0, 8).map((ds, i) => {
+                    const dsId = ds.dataset_id || ds.id;
+                    const dsName = ds.name || ds.filename || 'Unnamed';
+                    const isReady = ds.status === 'completed' || ds.status === 'ready';
+                    return (
+                      <tr key={dsId || i} style={{
+                        animation: `adminSlideIn 0.4s cubic-bezier(0.16,1,0.3,1) ${0.1 + i * 0.04}s both`,
+                      }}>
+                        <td style={tdStyle}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <HardDrive size={14} color="#58a6ff" />
+                            <div>
+                              <div style={{ fontWeight: 600, color: '#fff', fontSize: 12 }}>{dsName}</div>
+                              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)' }}>
+                                ID: {dsId?.slice(0, 8)}...
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td style={tdStyle}><StatusBadge status={ds.status} /></td>
+                        <td style={{ ...tdStyle, fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)' }}>
+                          {ds.created_at ? new Date(ds.created_at).toLocaleDateString('en-IN', {
+                            day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                          }) : '—'}
+                        </td>
+                        <td style={tdStyle}>
+                          {isReady ? (
+                            <button className="emp-btn emp-btn-ghost emp-btn-sm" style={{ fontSize: 9, padding: '4px 10px' }}
+                              onClick={() => navigate(`/employee/visualization?ds=${dsId}&name=${encodeURIComponent(dsName)}`)}>
+                              <BarChart3 size={10} /> View
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: 10, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                              {ds.status === 'processing' ? 'Processing...' : '—'}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* ── AI Chatbot CTA ── */}
+        {readyDatasets.length > 0 && (
+          <div className="glass-panel" onClick={() => navigate('/employee/chat')} style={{
+            padding: '20px 24px', cursor: 'pointer',
+            background: 'linear-gradient(135deg, rgba(88,166,255,0.06) 0%, rgba(63,185,80,0.04) 100%)',
+            borderLeft: '3px solid #3fb950',
+            transition: 'all 0.2s ease',
+          }}
+            onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+            onMouseLeave={e => e.currentTarget.style.transform = ''}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div style={{
+                  width: 42, height: 42, borderRadius: 12,
+                  background: 'rgba(63,185,80,0.15)', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <MessageSquare size={20} color="#3fb950" />
+                </div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Ask AI about your data</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                    "What is the total revenue by region?" — Get instant answers from {readyDatasets.length} dataset{readyDatasets.length !== 1 ? 's' : ''}
+                  </div>
+                </div>
+              </div>
+              <ArrowRight size={18} color="#3fb950" />
+            </div>
+          </div>
+        )}
+
       </div>
 
       <style>{`
-        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
-        @keyframes progress { from { width: 35%; } to { width: 55%; } }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
       `}</style>
     </EmployeeLayout>
   );
+};
+
+const thStyle = {
+  padding: '10px 16px', textAlign: 'left', fontSize: 10,
+  fontFamily: "'DM Mono', monospace", textTransform: 'uppercase',
+  letterSpacing: 0.5, color: 'var(--text-muted)',
+  borderBottom: '1px solid var(--border-color)',
+  background: 'rgba(22,27,34,0.5)',
+};
+
+const tdStyle = {
+  padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.03)',
+  fontSize: 12, color: 'var(--text-main)',
 };
 
 export default EmployeeDashboardPage;

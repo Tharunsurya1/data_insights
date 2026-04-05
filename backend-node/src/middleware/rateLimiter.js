@@ -7,9 +7,9 @@ export const queryLimiter = rateLimit({
   message: { success: false, message: "Too many query requests from this IP, please try again after a minute" }
 });
 
-// Limit to 10 dataset uploads per hour per IP
+// Limit to 50 dataset uploads per hour per IP (increased for testing)
 export const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10,
+  max: 50,
   message: { success: false, message: "Too many uploads from this IP, please try again after an hour" }
 });

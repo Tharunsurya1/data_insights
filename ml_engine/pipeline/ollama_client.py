@@ -18,8 +18,8 @@ import urllib.error
 logger = logging.getLogger("system_logger")
 
 OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL    = "phi3:mini"
-OLLAMA_TIMEOUT  = 20  # seconds hard limit — enforced via thread so CPU-bound models can't hang pipeline
+OLLAMA_MODEL = "phi3:mini"
+OLLAMA_TIMEOUT = 20  # seconds hard limit — enforced via thread so CPU-bound models can't hang pipeline
 
 
 def _is_available() -> bool:
@@ -31,28 +31,69 @@ def _is_available() -> bool:
         return False
 
 
-def _generate_blocking(prompt: str, system: str) -> str:
+def _generate_blocking(prompt: str, system: str) -> str | None:
     """Internal blocking call — always run inside a thread via generate()."""
-    payload = json.dumps({
-        "model":  OLLAMA_MODEL,
-        "prompt": prompt,
-        "system": system,
-        "stream": False,
-        "options": {
-            "temperature": 0.3,
-            "num_predict": 128,   # small cap → faster response
+    payload = json.dumps(
+        {
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "system": system,
+            "stream": False,
+            "options": {
+                "temperature": 0.3,
+                "num_predict": 128,
+            },
         }
-    }).encode("utf-8")
+    ).encode("utf-8")
 
     req = urllib.request.Request(
         f"{OLLAMA_BASE_URL}/api/generate",
         data=payload,
         headers={"Content-Type": "application/json"},
-        method="POST"
+        method="POST",
     )
-    with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-        return data.get("response", "").strip()
+    try:
+        with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            response = data.get("response", "").strip()
+
+            if not response:
+                logger.warning("[Ollama] Empty response from model")
+                return None
+
+            error_patterns = [
+                "does not support image",
+                "cannot read image",
+                "not support",
+                "vision",
+                "multimodal",
+            ]
+            if any(pattern in response.lower() for pattern in error_patterns):
+                logger.warning(
+                    f"[Ollama] Model does not support image input - returning fallback"
+                )
+                return None
+
+            return response
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8") if e.fp else ""
+        if (
+            "does not support image" in error_body.lower()
+            or "cannot read image" in error_body.lower()
+            or e.code == 400
+        ):
+            logger.warning(
+                f"[Ollama] HTTP {e.code} - model does not support image input, skipping"
+            )
+            return None
+        logger.warning(f"[Ollama] HTTP error {e.code}: {e.reason}")
+        return None
+    except urllib.error.URLError as e:
+        logger.warning(f"[Ollama] Connection error: {e.reason}")
+        return None
+    except Exception as e:
+        logger.warning(f"[Ollama] Unexpected error: {e}")
+        return None
 
 
 def generate(prompt: str, system: str = "") -> str | None:
@@ -65,7 +106,9 @@ def generate(prompt: str, system: str = "") -> str | None:
         try:
             return future.result(timeout=OLLAMA_TIMEOUT)
         except concurrent.futures.TimeoutError:
-            logger.warning(f"[Ollama] Timed out after {OLLAMA_TIMEOUT}s — falling back to rule-based.")
+            logger.warning(
+                f"[Ollama] Timed out after {OLLAMA_TIMEOUT}s — falling back to rule-based."
+            )
             return None
         except Exception as e:
             logger.warning(f"[Ollama] Request failed: {e}")
@@ -100,7 +143,7 @@ def schema_interpret(columns: list[str]) -> dict | None:
     # Extract first JSON object from response (model sometimes adds text)
     try:
         start = raw.index("{")
-        end   = raw.rindex("}") + 1
+        end = raw.rindex("}") + 1
         return json.loads(raw[start:end])
     except (ValueError, json.JSONDecodeError) as e:
         logger.warning(f"[Ollama] Could not parse schema JSON from response: {e}")
@@ -119,7 +162,7 @@ def greeting_response(user_message: str) -> str | None:
     logger.info("[Ollama] Greeting handler triggered.")
 
     prompt = (
-        f"User said: \"{user_message}\"\n"
+        f'User said: "{user_message}"\n'
         "Respond as a friendly data analytics assistant for DataInsights.ai. "
         "Be concise (2-3 sentences max). Mention you can answer questions about "
         "their uploaded dataset such as totals, trends, averages, and insights."

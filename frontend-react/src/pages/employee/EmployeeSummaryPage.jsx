@@ -1,68 +1,33 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { MessageSquare, LayoutDashboard, Sparkles, Download, ChevronRight } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { MessageSquare, LayoutDashboard, Sparkles, Download, ChevronRight, FileText, Database } from 'lucide-react';
 import EmployeeLayout from '../../layout/EmployeeLayout';
+import { getDatasets, getDashboardConfig } from '../../services/api';
+
+const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 const TOC_SECTIONS = [
   { id: 'overview', label: 'Overview' },
-  { id: 'cleaning', label: 'Cleaning Summary' },
   { id: 'schema', label: 'Schema / Columns' },
-  { id: 'nulls', label: 'Null Analysis' },
   { id: 'numeric', label: 'Numeric Stats' },
   { id: 'categorical', label: 'Categorical Profiles' },
   { id: 'actions', label: 'Actions' },
 ];
 
-const SCHEMA = [
-  { name: 'customer_id', type: 'string', nullable: 'No', unique: '12,450', sample: 'CUST-0001, CUST-0002', typeClass: 'cat' },
-  { name: 'name', type: 'string', nullable: 'No', unique: '12,450', sample: 'Priya Sharma, Raj Mehta…', typeClass: 'cat' },
-  { name: 'revenue', type: 'float64', nullable: 'Yes', unique: '8,421', sample: '5200.0, 18400.0, 92000.0', typeClass: 'num' },
-  { name: 'segment', type: 'string', nullable: 'No', unique: '4', sample: 'Enterprise, SMB, Startup…', typeClass: 'cat' },
-  { name: 'region', type: 'string', nullable: 'No', unique: '5', sample: 'North, South, East, West…', typeClass: 'cat' },
-  { name: 'signup_date', type: 'datetime', nullable: 'No', unique: '1,104', sample: '2022-01-05, 2023-08-14…', typeClass: 'date' },
-  { name: 'orders', type: 'int64', nullable: 'No', unique: '89', sample: '1, 4, 12, 48', typeClass: 'num' },
-  { name: 'retention_score', type: 'float64', nullable: 'Yes', unique: '982', sample: '0.42, 0.71, 0.88, 0.95', typeClass: 'num' },
-];
-
+// Sample cleaning steps - will be replaced with real data from API
 const CLEAN_STEPS = [
-  { num: 1, name: 'Null Values', detail: 'revenue: mean · discount: 0 · region: mode', result: '✓ 14 filled' },
-  { num: 2, name: 'Duplicates', detail: 'Strategy: keep first occurrence', result: '✓ 7 removed' },
-  { num: 3, name: 'Data Types', detail: 'signup_date → datetime · customer_id → string', result: '✓ 2 fixed' },
-  { num: 4, name: 'Whitespace', detail: 'rep_name, region: trim + title case', result: '✓ 23 rows' },
-  { num: 5, name: 'Outliers', detail: 'Skipped by user', result: '— skipped', skipped: true },
+  { num: '1', name: 'Load & Parse', detail: 'CSV → Structured', result: '✓ Done', skipped: false },
+  { num: '2', name: 'Type Detection', detail: 'Auto-detect column types', result: '✓ Done', skipped: false },
+  { num: '3', name: 'Null Handling', detail: 'Fill missing values', result: '✓ Done', skipped: false },
+  { num: '4', name: 'Duplicate Removal', detail: 'Check for dupes', result: '✓ Done', skipped: false },
+  { num: '5', name: 'Outlier Detection', detail: 'Statistical analysis', result: '✓ Done', skipped: false },
 ];
 
+// Sample null data - will be replaced with real data from API
 const NULL_DATA = [
-  { col: 'revenue', pct: 0, label: '0 nulls · fully filled', color: 'var(--success)' },
-  { col: 'retention_score', pct: 2, label: '24 nulls · 0.19%', color: 'var(--warning)' },
-  { col: 'region', pct: 0, label: '0 nulls · mode filled', color: 'var(--success)' },
-  { col: 'rep_name', pct: 1, label: '12 nulls · 0.09%', color: 'var(--warning)' },
-  { col: 'discount', pct: 0, label: '0 nulls · filled with 0', color: 'var(--success)' },
-  { col: 'last_order_date', pct: 5, label: '620 nulls · 4.98%', color: 'var(--warning)' },
-];
-
-const NUMERIC_STATS = [
-  { name: 'revenue', stats: { min: '₹1,200', max: '₹8,42,000', mean: '₹33,740', median: '₹18,400', 'std dev': '₹62,100', nulls: '0 (filled)' } },
-  { name: 'orders', stats: { min: '1', max: '48', mean: '8.4', median: '6', 'std dev': '7.2', nulls: '0' } },
-  { name: 'retention_score', stats: { min: '0.08', max: '0.99', mean: '0.68', median: '0.72', 'std dev': '0.19', nulls: '24' } },
-  { name: 'discount', stats: { min: '0%', max: '35%', mean: '8.4%', median: '7.0%', 'std dev': '5.8%', nulls: '0 (filled 0)' } },
-];
-
-const CATEGORICAL_DATA = [
-  { name: 'segment', values: [
-    { label: 'Enterprise', pct: 40, rows: '4,980' }, { label: 'Individual', pct: 24, rows: '2,988' },
-    { label: 'SMB', pct: 20, rows: '2,490' }, { label: 'Startup', pct: 16, rows: '1,992' },
-  ], color: 'var(--accent)' },
-  { name: 'region', values: [
-    { label: 'East', pct: 31, rows: '3,821' }, { label: 'North', pct: 24, rows: '2,940' },
-    { label: 'Central', pct: 19, rows: '2,410' }, { label: 'South', pct: 18, rows: '2,180' },
-    { label: 'West', pct: 9, rows: '1,099' },
-  ], color: 'var(--accent)' },
-  { name: 'status', values: [
-    { label: 'Active', pct: 68, rows: '8,491', color: 'var(--success)' },
-    { label: 'Inactive', pct: 19, rows: '2,415', color: 'var(--warning)' },
-    { label: 'Churned', pct: 12, rows: '1,544', color: 'var(--danger)' },
-  ] },
+  { col: 'email', pct: 0, label: 'No nulls' },
+  { col: 'phone', pct: 5, label: '5% nulls' },
+  { col: 'address', pct: 12, label: '12% nulls' },
 ];
 
 const typeColors = {
@@ -73,7 +38,74 @@ const typeColors = {
 
 const EmployeeSummaryPage = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const datasetId = searchParams.get('ds');
+  const datasetName = searchParams.get('name') || datasetId;
+  
   const [activeSection, setActiveSection] = useState('overview');
+  const [availableDatasets, setAvailableDatasets] = useState([]);
+  const [selectedDataset, setSelectedDataset] = useState(null);
+  const [datasetData, setDatasetData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Load available datasets
+  useEffect(() => {
+    const loadDatasets = async () => {
+      try {
+        const res = await getDatasets();
+        if (res.success && res.data) {
+          const readyDatasets = res.data.filter(d => d.status === 'completed' || d.status === 'ready');
+          setAvailableDatasets(readyDatasets);
+          
+          if (!datasetId && readyDatasets.length > 0) {
+            setSelectedDataset(readyDatasets[0]);
+          } else if (datasetId) {
+            const selected = readyDatasets.find(d => (d.dataset_id || d.id) === datasetId);
+            if (selected) setSelectedDataset(selected);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load datasets:', err.message);
+      }
+    };
+    loadDatasets();
+  }, [datasetId]);
+
+  // Load dataset details
+  useEffect(() => {
+    const loadDatasetData = async () => {
+      if (!selectedDataset) return;
+      setLoading(true);
+      
+      const dsId = selectedDataset.dataset_id || selectedDataset.id;
+      const token = localStorage.getItem('token');
+      
+      try {
+        // Load cleaned data for schema and stats
+        const response = await fetch(`${API_URL}/cleaned-data/${dsId}?limit=1`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+          setDatasetData({
+            name: selectedDataset.name,
+            rows: data.totalRows,
+            columns: data.headers?.length || 0,
+            headers: data.headers,
+            columnTypes: data.columnTypes,
+            columnStats: data.columnStats,
+          });
+        }
+      } catch (err) {
+        console.warn('Could not load dataset data:', err.message);
+      }
+      
+      setLoading(false);
+    };
+    
+    loadDatasetData();
+  }, [selectedDataset]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -94,17 +126,69 @@ const EmployeeSummaryPage = () => {
     setActiveSection(id);
   };
 
+  // Build schema from actual data
+  const schema = datasetData?.headers?.map(col => ({
+    name: col,
+    type: datasetData.columnTypes?.[col] || 'string',
+    nullable: datasetData.columnStats?.[col]?.uniqueCount ? 'No' : 'Yes',
+    unique: datasetData.columnStats?.[col]?.uniqueCount?.toLocaleString() || '—',
+    typeClass: datasetData.columnTypes?.[col] === 'numeric' ? 'num' : 'cat'
+  })) || [];
+
+  // Numeric stats from actual data
+  const numericStats = datasetData?.headers?.filter(h => datasetData.columnTypes?.[h] === 'numeric').map(col => {
+    const stats = datasetData.columnStats?.[col];
+    return {
+      name: col,
+      stats: stats ? {
+        min: stats.min?.toFixed(2) || '—',
+        max: stats.max?.toFixed(2) || '—',
+        mean: stats.mean?.toFixed(2) || '—',
+        count: stats.count?.toLocaleString() || '0',
+      } : { min: '—', max: '—', mean: '—', count: '0' }
+    };
+  }) || [];
+
+  // Categorical data from actual data
+  const categoricalData = datasetData?.headers?.filter(h => datasetData.columnTypes?.[h] === 'categorical').map(col => {
+    const stats = datasetData.columnStats?.[col];
+    const values = stats?.values?.slice(0, 5).map(v => ({
+      label: v,
+      pct: Math.round((stats.count / (stats.uniqueCount || 1)) * 100),
+    })) || [];
+    return { name: col, values, color: 'var(--accent)' };
+  }) || [];
+
+  const currentDataset = selectedDataset || { name: datasetName, rows_count: datasetData?.rows, columns_count: datasetData?.columns };
+
   return (
     <EmployeeLayout>
       <div className="emp-topbar">
-        <div>
-          <div className="emp-topbar-title">Dataset Summary</div>
-          <div className="emp-topbar-sub">Comprehensive analysis report for Customer_Data</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={() => navigate('/employee/datasets')}>
+            ← Back
+          </button>
+          {availableDatasets.length > 1 && (
+            <select className="emp-filter-select" value={selectedDataset?.dataset_id || selectedDataset?.id || ''}
+              onChange={(e) => {
+                const ds = availableDatasets.find(d => (d.dataset_id || d.id) === e.target.value);
+                if (ds) {
+                  setSelectedDataset(ds);
+                  navigate(`/employee/summary?ds=${ds.dataset_id || ds.id}&name=${encodeURIComponent(ds.name || '')}`);
+                }
+              }} style={{ minWidth: 180, fontSize: 11 }}>
+              {availableDatasets.map(ds => <option key={ds.dataset_id || ds.id} value={ds.dataset_id || ds.id}>{ds.name}</option>)}
+            </select>
+          )}
+          <div>
+            <div className="emp-topbar-title">Dataset Summary</div>
+            <div className="emp-topbar-sub">{currentDataset.name} · {datasetData?.rows?.toLocaleString() || '—'} rows · {datasetData?.columns || '—'} columns</div>
+          </div>
         </div>
         <div className="emp-topbar-actions">
-          <button className="emp-btn emp-btn-ghost emp-btn-sm"><Download size={12} /> Export PDF</button>
-          <button className="emp-btn emp-btn-primary emp-btn-sm" onClick={() => navigate('/employee/chat')}>
-            <MessageSquare size={12} /> Ask Chatbot →
+          <button className="emp-btn emp-btn-ghost emp-btn-sm"><Download size={12} /> Export</button>
+          <button className="emp-btn emp-btn-primary emp-btn-sm" onClick={() => navigate(`/employee/chat?ds=${selectedDataset?.dataset_id || selectedDataset?.id}`)}>
+            <MessageSquare size={12} /> Ask Chatbot
           </button>
         </div>
       </div>
@@ -153,25 +237,38 @@ const EmployeeSummaryPage = () => {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0,
               }}>📊</div>
               <div>
-                <div style={{ fontSize: 22, fontWeight: 600, color: '#fff', lineHeight: 1.2 }}>Customer_Data.xlsx</div>
-                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>acme-prod · /data/crm/customers.xlsx · Version 3</div>
+                <div style={{ fontSize: 22, fontWeight: 600, color: '#fff', lineHeight: 1.2 }}>{currentDataset.name}</div>
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>Processed · Cleaned · Ready for analysis</div>
               </div>
               <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
                 <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, padding: '4px 10px', borderRadius: 20, background: 'rgba(63,185,80,0.08)', color: 'var(--success)' }}>● Ready</span>
                 <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, padding: '4px 10px', borderRadius: 20, background: 'rgba(88,166,255,0.08)', color: 'var(--primary)' }}>Chatbot Unlocked</span>
               </div>
             </div>
-            <div style={{
-              fontSize: 13.5, color: 'var(--text-main)', lineHeight: 1.75,
-              padding: '14px 16px', background: 'rgba(13,17,23,0.95)', borderRadius: 10,
-              borderLeft: '3px solid var(--primary)', fontStyle: 'italic',
-            }}>
-              This dataset contains <strong style={{ color: '#fff', fontStyle: 'normal' }}>12,450 customer records</strong> from Acme Corp's CRM system, spanning <strong style={{ color: '#fff', fontStyle: 'normal' }}>24 attributes</strong> including revenue, segments, regions, order history, and retention scores. The data covers customers acquired between <strong style={{ color: '#fff', fontStyle: 'normal' }}>Jan 2022 and Dec 2024</strong>. Enterprise and SMB segments account for <strong style={{ color: '#fff', fontStyle: 'normal' }}>64% of total revenue</strong>, with the East region being the highest-performing geography.
-            </div>
+            {datasetData ? (
+              <div style={{
+                fontSize: 13.5, color: 'var(--text-main)', lineHeight: 1.75,
+                padding: '14px 16px', background: 'rgba(13,17,23,0.95)', borderRadius: 10,
+                borderLeft: '3px solid var(--primary)', fontStyle: 'italic',
+              }}>
+                This dataset contains <strong style={{ color: '#fff', fontStyle: 'normal' }}>{datasetData.rows?.toLocaleString() || '—'} records</strong> with <strong style={{ color: '#fff', fontStyle: 'normal' }}>{datasetData.columns} attributes</strong>. 
+                The data includes {datasetData.columnTypes ? Object.values(datasetData.columnTypes).filter(t => t === 'numeric').length : 0} numeric columns and {datasetData.columnTypes ? Object.values(datasetData.columnTypes).filter(t => t === 'categorical').length : 0} categorical columns.
+              </div>
+            ) : (
+              <div style={{
+                fontSize: 13.5, color: 'var(--text-main)', lineHeight: 1.75,
+                padding: '14px 16px', background: 'rgba(13,17,23,0.95)', borderRadius: 10,
+                borderLeft: '3px solid var(--primary)', fontStyle: 'italic',
+              }}>
+                Loading dataset summary...
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 24, marginTop: 16, flexWrap: 'wrap' }}>
               {[
-                { val: '12,450', lbl: 'Total Rows' }, { val: '24', lbl: 'Columns' }, { val: '8.1 MB', lbl: 'File Size' },
-                { val: 'v3', lbl: 'Version' }, { val: '99.9%', lbl: 'Data Quality', color: 'var(--success)' }, { val: '3 yrs', lbl: 'Date Range' },
+                { val: datasetData?.rows?.toLocaleString() || '—', lbl: 'Total Rows' }, 
+                { val: datasetData?.columns || '—', lbl: 'Columns' }, 
+                { val: schema.length, lbl: 'Attributes' },
+                { val: selectedDataset?.status === 'completed' ? 'Completed' : 'Ready', lbl: 'Status', color: 'var(--success)' },
               ].map((m, i) => (
                 <div key={i} style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: 20, fontWeight: 600, color: m.color || '#fff' }}>{m.val}</div>
@@ -218,12 +315,12 @@ const EmployeeSummaryPage = () => {
 
           {/* Schema */}
           <div id="schema" style={{ marginBottom: 32, scrollMarginTop: 80 }}>
-            <div style={sectionTitleStyle}>⊞ Schema · 24 Columns</div>
+            <div style={sectionTitleStyle}>⊞ Schema · {schema.length} Columns</div>
             <div className="glass-panel" style={{ overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr>
-                    {['#', 'Column Name', 'Type', 'Nullable', 'Unique', 'Sample Values'].map(col => (
+                    {['#', 'Column Name', 'Type', 'Nullable', 'Unique Values'].map(col => (
                       <th key={col} style={{
                         background: 'rgba(13,17,23,0.95)', padding: '9px 12px', textAlign: 'left',
                         fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)',
@@ -233,7 +330,7 @@ const EmployeeSummaryPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {SCHEMA.map((col, i) => (
+                  {schema.slice(0, 15).map((col, i) => (
                     <tr key={i} onMouseEnter={e => e.currentTarget.style.background = 'rgba(22,27,34,0.7)'} onMouseLeave={e => e.currentTarget.style.background = ''}
                       style={{ transition: 'background 0.15s' }}>
                       <td style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.025)', color: 'var(--text-muted)', fontFamily: "'DM Mono', monospace", fontSize: 10 }}>{i + 1}</td>
@@ -244,18 +341,19 @@ const EmployeeSummaryPage = () => {
                         <span style={{
                           fontFamily: "'DM Mono', monospace", fontSize: 9, padding: '2px 8px', borderRadius: 5,
                           background: typeColors[col.typeClass]?.bg, color: typeColors[col.typeClass]?.color,
-                        }}>{col.type}</span>
+                        }}>{datasetData?.columnTypes?.[col.name] || col.type}</span>
                       </td>
                       <td style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.025)', color: col.nullable === 'Yes' ? 'var(--warning)' : 'var(--success)', fontSize: 11 }}>{col.nullable}</td>
                       <td style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.025)', fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-main)' }}>{col.unique}</td>
-                      <td style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.025)', fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)' }}>{col.sample}</td>
                     </tr>
                   ))}
-                  <tr>
-                    <td colSpan={6} style={{ padding: '10px 12px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)', textAlign: 'center' }}>
-                      + 16 more columns · <span style={{ color: 'var(--primary)', cursor: 'pointer' }}>Show all</span>
-                    </td>
-                  </tr>
+                  {schema.length > 15 && (
+                    <tr>
+                      <td colSpan={5} style={{ padding: '10px 12px', fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)', textAlign: 'center' }}>
+                        + {schema.length - 15} more columns
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -281,7 +379,7 @@ const EmployeeSummaryPage = () => {
           <div id="numeric" style={{ marginBottom: 32, scrollMarginTop: 80 }}>
             <div style={sectionTitleStyle}>∑ Numeric Column Statistics</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              {NUMERIC_STATS.map((col, i) => (
+              {(numericStats.length > 0 ? numericStats : [{ name: 'No numeric columns', stats: { min: '—', max: '—', mean: '—', count: '0' } }]).map((col, i) => (
                 <div key={i} className="glass-panel" style={{ padding: '14px 16px' }}>
                   <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: 'var(--primary)', marginBottom: 8, fontWeight: 600 }}>{col.name}</div>
                   {Object.entries(col.stats).map(([k, v]) => (
@@ -298,7 +396,7 @@ const EmployeeSummaryPage = () => {
           {/* Categorical Profiles */}
           <div id="categorical" style={{ marginBottom: 32, scrollMarginTop: 80 }}>
             <div style={sectionTitleStyle}>◈ Categorical Profiles</div>
-            {CATEGORICAL_DATA.map((cat, ci) => (
+            {(categoricalData.length > 0 ? categoricalData : [{ name: 'No categorical columns', values: [] }]).map((cat, ci) => (
               <div key={ci} className="glass-panel" style={{ padding: '14px 16px', marginBottom: 10 }}>
                 <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: 'var(--accent)', marginBottom: 10 }}>
                   {cat.name} ({cat.values.length} unique values)

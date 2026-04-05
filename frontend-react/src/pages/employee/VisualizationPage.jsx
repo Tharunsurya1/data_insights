@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, AreaChart, Area,
@@ -10,7 +10,7 @@ import {
   Activity
 } from 'lucide-react';
 import EmployeeLayout from '../../layout/EmployeeLayout';
-import { getDashboardConfig } from '../../services/api';
+import { getDashboardConfig, getDatasets } from '../../services/api';
 
 const api = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
@@ -59,15 +59,25 @@ const VisualizationPage = () => {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState({});
-  const [activeFilters, setActiveFilters] = useState({});
+  const [appliedFilters, setAppliedFilters] = useState({});
   const [expandedFilter, setExpandedFilter] = useState(null);
   const [page, setPage] = useState(1);
   const [chartType, setChartType] = useState('bar');
+  const [aggregation, setAggregation] = useState('sum');
+  
   const [chartXAxis, setChartXAxis] = useState('');
   const [chartYAxis, setChartYAxis] = useState('');
+  
+  const [availableDatasets, setAvailableDatasets] = useState([]);
+  const [selectedDataset, setSelectedDataset] = useState(null);
+
+  const isInitialized = useRef(false);
 
   const loadData = useCallback(async (currentFilters = {}, currentSearch = '', currentPage = 1) => {
-    if (!datasetId) { setLoading(false); return; }
+    if (!datasetId) { 
+      setLoading(false); 
+      return; 
+    }
     setLoading(true);
     setError('');
     try {
@@ -75,63 +85,169 @@ const VisualizationPage = () => {
         fetchCleanedData(datasetId, { filters: currentFilters, search: currentSearch, page: currentPage, limit: 500 }),
         getDashboardConfig(datasetId).catch(() => null),
       ]);
+      
       if (cleanedRes.success) {
         setData(cleanedRes);
-        if (!chartXAxis && cleanedRes.headers?.length > 0) {
-          const catCol = cleanedRes.headers.find(h => cleanedRes.columnTypes[h] === 'categorical');
-          const numCol = cleanedRes.headers.find(h => cleanedRes.columnTypes[h] === 'numeric');
+        
+        if (!isInitialized.current && cleanedRes.headers?.length > 0) {
+          const catCol = cleanedRes.headers.find(h => cleanedRes.columnTypes?.[h] === 'categorical');
+          const numCol = cleanedRes.headers.find(h => cleanedRes.columnTypes?.[h] === 'numeric');
           setChartXAxis(catCol || cleanedRes.headers[0]);
           setChartYAxis(numCol || cleanedRes.headers[1] || '');
+          isInitialized.current = true;
         }
       } else {
         setError(cleanedRes.message || 'Failed to load data');
       }
+      
       if (dashRes) setDashboardConfig(dashRes);
     } catch {
       setError('Failed to connect to data service');
     } finally {
       setLoading(false);
     }
-  }, [datasetId, chartXAxis]);
+  }, [datasetId]);
 
-  useEffect(() => { loadData(activeFilters, search, page); }, [activeFilters, search, page, loadData]);
+  useEffect(() => { 
+    if (datasetId) {
+      loadData(appliedFilters, search, page); 
+    }
+  }, [datasetId]);
 
-  const applyFilters = () => { setActiveFilters({ ...filters }); setPage(1); };
-  const clearFilters = () => { setFilters({}); setActiveFilters({}); setSearch(''); setPage(1); };
+  useEffect(() => {
+    const loadDatasets = async () => {
+      try {
+        const res = await getDatasets();
+        if (res.success && res.data) {
+          const readyDatasets = res.data.filter(d => d.status === 'completed' || d.status === 'ready');
+          setAvailableDatasets(readyDatasets);
+          
+          if (!datasetId && readyDatasets.length > 0) {
+            const firstReady = readyDatasets[0];
+            setSelectedDataset(firstReady);
+            navigate(`/employee/visualization?ds=${firstReady.dataset_id || firstReady.id}&name=${encodeURIComponent(firstReady.name || '')}`, { replace: true });
+          } else if (datasetId) {
+            const selected = readyDatasets.find(d => (d.dataset_id || d.id) === datasetId);
+            if (selected) setSelectedDataset(selected);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load datasets:', err.message);
+      }
+    };
+    loadDatasets();
+  }, [datasetId]);
 
-  const toggleFilterValue = (col, val) => {
+  const applyFilters = useCallback(() => { 
+    setAppliedFilters({ ...filters }); 
+    setPage(1); 
+    loadData({ ...filters }, search, 1); 
+  }, [filters, search, loadData]);
+
+  const clearFilters = useCallback(() => { 
+    setFilters({}); 
+    setAppliedFilters({}); 
+    setSearch(''); 
+    setPage(1); 
+    loadData({}, '', 1); 
+  }, [loadData]);
+
+  const toggleFilterValue = useCallback((col, val) => {
     setFilters(prev => {
       const cur = prev[col] || [];
       if (cur.includes(val)) return { ...prev, [col]: cur.filter(v => v !== val) };
       return { ...prev, [col]: [...cur, val] };
     });
-  };
+  }, []);
 
-  const setNumericFilter = (col, min, max) => {
+  const setNumericFilter = useCallback((col, min, max) => {
     setFilters(prev => ({
       ...prev,
       [col]: { min: min !== '' ? parseFloat(min) : undefined, max: max !== '' ? parseFloat(max) : undefined },
     }));
-  };
+  }, []);
 
-  const activeFilterCount = Object.keys(activeFilters).filter(k => {
-    const v = activeFilters[k];
-    if (Array.isArray(v)) return v.length > 0;
-    return v?.min !== undefined || v?.max !== undefined;
-  }).length;
+  const appliedFilterCount = useMemo(() => {
+    return Object.keys(appliedFilters).filter(k => {
+      const v = appliedFilters[k];
+      if (Array.isArray(v)) return v.length > 0;
+      return v?.min !== undefined || v?.max !== undefined;
+    }).length;
+  }, [appliedFilters]);
+
+  const headers = useMemo(() => {
+    if (!data?.headers) return [];
+    return data.headers.filter(h => h !== 'Unnamed: 0.1' && h !== 'Unnamed: 0');
+  }, [data?.headers]);
 
   const chartData = useMemo(() => {
-    if (!data?.rows || !chartXAxis || !chartYAxis) return [];
+    if (!data?.rows || !chartXAxis || !chartYAxis || !headers.length) return [];
+    
+    const isNumericY = data.columnTypes?.[chartYAxis] === 'numeric';
     const grouped = {};
-    data.rows.forEach(row => {
+    const counts = {};
+    const maxs = {};
+    const mins = {};
+    const sums = {};
+    
+    for (let i = 0; i < data.rows.length; i++) {
+      const row = data.rows[i];
       const key = row[chartXAxis] || 'Unknown';
-      const val = parseFloat(row[chartYAxis]);
-      if (!isNaN(val)) grouped[key] = (grouped[key] || 0) + val;
-    });
-    return Object.entries(grouped)
-      .map(([name, value]) => ({ name: String(name).substring(0, 18), value: Math.round(value * 100) / 100 }))
-      .sort((a, b) => b.value - a.value).slice(0, 10);
-  }, [data, chartXAxis, chartYAxis]);
+      const val = row[chartYAxis];
+      
+      if (isNumericY) {
+        const numVal = parseFloat(val);
+        if (!isNaN(numVal)) {
+          grouped[key] = (grouped[key] || 0) + numVal;
+          sums[key] = (sums[key] || 0) + numVal;
+          counts[key] = (counts[key] || 0) + 1;
+          maxs[key] = Math.max(maxs[key] || -Infinity, numVal);
+          mins[key] = mins[key] === undefined ? numVal : Math.min(mins[key], numVal);
+        }
+      } else {
+        grouped[key] = (grouped[key] || 0) + 1;
+        counts[key] = (counts[key] || 0) + 1;
+      }
+    }
+    
+    const entries = Object.entries(grouped);
+    const result = [];
+    
+    for (let i = 0; i < entries.length; i++) {
+      const [name, value] = entries[i];
+      result.push({
+        name: String(name).substring(0, 18),
+        value: isNumericY 
+          ? (aggregation === 'sum' ? Math.round((sums[name] || 0) * 100) / 100 : 
+             aggregation === 'count' ? counts[name] || 0 :
+             aggregation === 'avg' ? Math.round(((sums[name] || 0) / (counts[name] || 1)) * 100) / 100 :
+             aggregation === 'max' ? Math.round((maxs[name] || 0) * 100) / 100 :
+             aggregation === 'min' ? Math.round((mins[name] || 0) * 100) / 100 : value)
+          : value,
+        rawValue: value,
+        count: counts[name] || 0,
+        max: maxs[name],
+        min: mins[name]
+      });
+    }
+    
+    result.sort((a, b) => b.value - a.value);
+    return result.slice(0, 10);
+  }, [data, chartXAxis, chartYAxis, aggregation, headers]);
+
+  const chartStats = useMemo(() => {
+    if (!chartData.length) return null;
+    const isNumericY = data?.columnTypes?.[chartYAxis] === 'numeric';
+    if (!isNumericY) {
+      return { totalSum: null, totalCount: chartData.reduce((acc, d) => acc + d.rawValue, 0), avg: null, max: null, min: null };
+    }
+    const totalSum = chartData.reduce((acc, d) => acc + d.rawValue, 0);
+    const totalCount = chartData.reduce((acc, d) => acc + d.count, 0);
+    const avg = totalCount > 0 ? totalSum / totalCount : 0;
+    const max = Math.max(...chartData.map(d => d.rawValue));
+    const min = Math.min(...chartData.filter(d => d.rawValue > 0).map(d => d.rawValue), 0);
+    return { totalSum, totalCount, avg, max, min };
+  }, [chartData, chartYAxis, data, aggregation]);
 
   const renderMainChart = () => {
     if (!chartData.length) return (
@@ -139,17 +255,29 @@ const VisualizationPage = () => {
         Select X and Y axes to generate a chart
       </div>
     );
+    
+    const chartProps = {
+      data: chartData,
+      margin: { top: 10, right: 10, left: 0, bottom: 0 }
+    };
+    
     switch (chartType) {
       case 'bar':
         return (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
+            <BarChart {...chartProps}>
+              <defs>
+                <linearGradient id="barFillGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#58a6ff" stopOpacity={1} />
+                  <stop offset="100%" stopColor="#58a6ff" stopOpacity={0.5} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
               <XAxis dataKey="name" tick={{ fill: '#3d4f6e', fontSize: 9 }} />
               <YAxis tick={{ fill: '#3d4f6e', fontSize: 9 }} />
               <Tooltip content={<TooltipBox />} />
-              <Bar dataKey="value" name={chartYAxis} radius={[4, 4, 0, 0]}>
-                {chartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} opacity={0.85} />)}
+              <Bar dataKey="value" name={chartYAxis} fill="url(#barFillGrad)" radius={[6, 6, 0, 0]}>
+                {chartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -157,21 +285,36 @@ const VisualizationPage = () => {
       case 'line':
         return (
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData}>
+            <LineChart {...chartProps}>
+              <defs>
+                <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="#58a6ff" />
+                  <stop offset="100%" stopColor="#bc8cff" />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
               <XAxis dataKey="name" tick={{ fill: '#3d4f6e', fontSize: 9 }} />
               <YAxis tick={{ fill: '#3d4f6e', fontSize: 9 }} />
               <Tooltip content={<TooltipBox />} />
-              <Line type="monotone" dataKey="value" name={chartYAxis} stroke="#58a6ff" strokeWidth={2} />
+              <Line type="monotone" dataKey="value" name={chartYAxis} stroke="url(#lineGrad)" strokeWidth={3} dot={{ fill: '#58a6ff', strokeWidth: 2, stroke: '#fff', r: 4 }} />
             </LineChart>
           </ResponsiveContainer>
         );
-              case 'pie':
+      case 'pie':
         return (
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
-              <Pie data={chartData} dataKey="value" nameKey="name" outerRadius={80} innerRadius={35} paddingAngle={2}>
-                {chartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+              <defs>
+                {COLORS.map((color, i) => (
+                  <linearGradient key={i} id={`pieGrad${i}`} x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor={color} stopOpacity={1} />
+                    <stop offset="100%" stopColor={color} stopOpacity={0.6} />
+                  </linearGradient>
+                ))}
+              </defs>
+              <Pie data={chartData} dataKey="value" nameKey="name" outerRadius={85} innerRadius={40} paddingAngle={3}
+                label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}>
+                {chartData.map((_, i) => <Cell key={i} fill={`url(#pieGrad${i % COLORS.length})`} stroke="rgba(22,27,34,0.5)" strokeWidth={2} />)}
               </Pie>
               <Tooltip content={<TooltipBox />} />
               <Legend formatter={v => <span style={{ color: '#8b949e', fontSize: 9 }}>{v}</span>} />
@@ -181,22 +324,28 @@ const VisualizationPage = () => {
       case 'area':
         return (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData}>
+            <AreaChart {...chartProps}>
               <defs>
                 <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#58a6ff" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="#58a6ff" stopOpacity={0} />
+                  <stop offset="0%" stopColor="#58a6ff" stopOpacity={0.5} />
+                  <stop offset="50%" stopColor="#58a6ff" stopOpacity={0.25} />
+                  <stop offset="100%" stopColor="#58a6ff" stopOpacity={0.02} />
+                </linearGradient>
+                <linearGradient id="areaStroke" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="#58a6ff" />
+                  <stop offset="100%" stopColor="#3fb950" />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
               <XAxis dataKey="name" tick={{ fill: '#3d4f6e', fontSize: 9 }} />
               <YAxis tick={{ fill: '#3d4f6e', fontSize: 9 }} />
               <Tooltip content={<TooltipBox />} />
-              <Area type="monotone" dataKey="value" name={chartYAxis} stroke="#58a6ff" fill="url(#areaGrad)" strokeWidth={2} />
+              <Area type="monotone" dataKey="value" name={chartYAxis} stroke="url(#areaStroke)" fill="url(#areaGrad)" strokeWidth={3} />
             </AreaChart>
           </ResponsiveContainer>
         );
-      default: return null;
+      default:
+        return null;
     }
   };
 
@@ -234,6 +383,23 @@ const VisualizationPage = () => {
           <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={() => navigate('/employee/datasets')}>
             <ArrowLeft size={14} /> Back
           </button>
+          {availableDatasets.length > 1 && (
+            <select className="emp-filter-select" value={selectedDataset?.dataset_id || selectedDataset?.id || ''}
+              onChange={(e) => {
+                const ds = availableDatasets.find(d => (d.dataset_id || d.id) === e.target.value);
+                if (ds) {
+                  isInitialized.current = false;
+                  setSelectedDataset(ds);
+                  setData(null);
+                  setDashboardConfig(null);
+                  setChartXAxis('');
+                  setChartYAxis('');
+                  navigate(`/employee/visualization?ds=${ds.dataset_id || ds.id}&name=${encodeURIComponent(ds.name || '')}`);
+                }
+              }} style={{ minWidth: 180, fontSize: 11 }}>
+              {availableDatasets.map(ds => <option key={ds.dataset_id || ds.id} value={ds.dataset_id || ds.id}>{ds.name}</option>)}
+            </select>
+          )}
           <div>
             <div className="emp-topbar-title">Data Visualization</div>
             <div className="emp-topbar-sub">
@@ -242,7 +408,7 @@ const VisualizationPage = () => {
           </div>
         </div>
         <div className="emp-topbar-actions">
-          <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={() => loadData(activeFilters, search, page)}>
+          <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={() => loadData(appliedFilters, search, page)}>
             <RefreshCw size={12} /> Refresh
           </button>
         </div>
@@ -261,7 +427,7 @@ const VisualizationPage = () => {
             <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Filter size={14} /> Filters
             </div>
-            {activeFilterCount > 0 && (
+            {appliedFilterCount > 0 && (
               <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={clearFilters} style={{ fontSize: 9, padding: '2px 8px' }}>
                 Clear
               </button>
@@ -273,15 +439,15 @@ const VisualizationPage = () => {
               <Search size={12} />
               <input type="text" placeholder="Search..." value={search}
                 onChange={e => setSearch(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && loadData(activeFilters, search, 1)}
+                onKeyDown={e => e.key === 'Enter' && loadData(appliedFilters, search, 1)}
                 style={{ width: '100%', fontSize: 11, background: 'transparent', border: 'none', outline: 'none', color: '#fff' }}
               />
             </div>
           </div>
 
-          {data?.headers?.filter(col => col !== 'Unnamed: 0.1' && col !== 'Unnamed: 0').map(col => {
-            const type = data.columnTypes[col];
-            const stats = data.columnStats[col];
+          {headers.map(col => {
+            const type = data?.columnTypes?.[col];
+            const stats = data?.columnStats?.[col];
             const isExpanded = expandedFilter === col;
             const filterVal = filters[col];
             const isNum = type === 'numeric';
@@ -353,7 +519,7 @@ const VisualizationPage = () => {
           <div style={{ padding: '12px', borderTop: '1px solid var(--border-color)' }}>
             <button className="emp-btn emp-btn-primary emp-btn-sm" onClick={applyFilters}
               style={{ width: '100%', justifyContent: 'center' }}>
-              Apply Filters
+              Apply Filters {appliedFilterCount > 0 && `(${appliedFilterCount})`}
             </button>
           </div>
         </div>
@@ -383,20 +549,61 @@ const VisualizationPage = () => {
             <div style={{ width: 1, height: 16, background: 'var(--border-color)' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)' }}>X</span>
-              <select className="admin-filter-select" value={chartXAxis} onChange={e => setChartXAxis(e.target.value)} style={{ fontSize: 9 }}>
-                {data?.headers?.filter(h => h !== 'Unnamed: 0.1' && h !== 'Unnamed: 0').map(h => <option key={h} value={h}>{h}</option>)}
-              </select>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)' }}>Y</span>
-              <select className="admin-filter-select" value={chartYAxis} onChange={e => setChartYAxis(e.target.value)} style={{ fontSize: 9 }}>
-                {data?.headers?.filter(h => data.columnTypes[h] === 'numeric' && h !== 'Unnamed: 0.1' && h !== 'Unnamed: 0').map(h => (
+              <select 
+                className="admin-filter-select" 
+                value={chartXAxis} 
+                onChange={(e) => setChartXAxis(e.target.value)} 
+                style={{ fontSize: 9 }}
+              >
+                <option value="">Select</option>
+                {headers.map(h => (
                   <option key={h} value={h}>{h}</option>
                 ))}
               </select>
             </div>
+            <div style={{ width: 1, height: 16, background: 'var(--border-color)' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)' }}>Y</span>
+              <select 
+                className="admin-filter-select" 
+                value={chartYAxis} 
+                onChange={(e) => setChartYAxis(e.target.value)} 
+                style={{ fontSize: 9 }}
+              >
+                <option value="">Select</option>
+                {headers.map(h => (
+                  <option key={h} value={h}>{h}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ width: 1, height: 16, background: 'var(--border-color)' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)' }}>AGG</span>
+              <select 
+                className="admin-filter-select" 
+                value={aggregation} 
+                onChange={(e) => setAggregation(e.target.value)} 
+                style={{ fontSize: 9, minWidth: 70 }}
+              >
+                <option value="sum">Sum</option>
+                <option value="count">Count</option>
+                <option value="avg">Avg</option>
+                <option value="max">Max</option>
+                <option value="min">Min</option>
+              </select>
+            </div>
+            {chartStats && (
+              <>
+                <div style={{ width: 1, height: 16, background: 'var(--border-color)' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontFamily: "'DM Mono', monospace", fontSize: 9 }}>
+                  <span style={{ color: 'var(--primary)' }}>Σ: <strong>{chartStats.totalSum?.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></span>
+                  <span style={{ color: 'var(--accent)' }}>Cnt: <strong>{chartStats.totalCount?.toLocaleString()}</strong></span>
+                  <span style={{ color: 'var(--success)' }}>Avg: <strong>{chartStats.avg?.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></span>
+                </div>
+              </>
+            )}
             <div style={{ marginLeft: 'auto', fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)' }}>
-              {data?.totalRows?.toLocaleString() || '0'} rows · {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''}
+              {data?.totalRows?.toLocaleString() || '0'} rows · {appliedFilterCount} filter{appliedFilterCount !== 1 ? 's' : ''}
             </div>
           </div>
 
@@ -416,11 +623,11 @@ const VisualizationPage = () => {
 
             {/* Pie Chart alongside */}
             {data && (() => {
-              const catCol = data.headers.find(h =>
-                data.columnTypes[h] === 'categorical' && data.columnStats[h]?.uniqueCount >= 2 && data.columnStats[h]?.uniqueCount <= 8
+              const catCol = data.headers?.find(h =>
+                data.columnTypes?.[h] === 'categorical' && data.columnStats?.[h]?.uniqueCount >= 2 && data.columnStats?.[h]?.uniqueCount <= 8
                 && h !== 'name' && h !== 'processor'
               );
-              const numCol = data.headers.find(h => data.columnTypes[h] === 'numeric' && h !== 'Unnamed: 0.1' && h !== 'Unnamed: 0');
+              const numCol = data.headers?.find(h => data.columnTypes?.[h] === 'numeric' && h !== 'Unnamed: 0.1' && h !== 'Unnamed: 0');
               if (!catCol || !numCol) return null;
               const grouped = {};
               data.rows.forEach(row => {
@@ -506,7 +713,7 @@ const VisualizationPage = () => {
                   <thead>
                     <tr>
                       <th style={thStyle}>#</th>
-                      {data.headers.filter(h => h !== 'Unnamed: 0.1' && h !== 'Unnamed: 0').map(h => (
+                      {headers.map(h => (
                         <th key={h} style={thStyle}>{h}</th>
                       ))}
                     </tr>
@@ -517,10 +724,10 @@ const VisualizationPage = () => {
                         onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
                         onMouseLeave={e => e.currentTarget.style.background = ''}>
                         <td style={tdStyle}>{((page - 1) * 500) + ri + 1}</td>
-                        {data.headers.filter(h => h !== 'Unnamed: 0.1' && h !== 'Unnamed: 0').map(h => (
+                        {headers.map(h => (
                           <td key={h} style={{
                             ...tdStyle,
-                            color: data.columnTypes[h] === 'numeric' ? '#3fb950' : '#8b949e',
+                            color: data.columnTypes?.[h] === 'numeric' ? '#3fb950' : '#8b949e',
                             whiteSpace: 'nowrap', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis',
                           }} title={row[h]}>
                             {row[h] || <span style={{ color: '#f85149', fontStyle: 'italic' }}>—</span>}

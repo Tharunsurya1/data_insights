@@ -1,5 +1,4 @@
 import express from "express";
-
 import {
   getAllDatasets,
   getDatasetById,
@@ -10,41 +9,47 @@ import {
   getAnalysis,
   getMetrics,
   getDashboardConfig,
+  deleteDataset,
 } from "../controllers/datasetController.js";
+import { protect } from "../middleware/protect.js";
 
 const router = express.Router();
 
 /* =====================================================
-   DATASET MANAGEMENT (PROTECTED)
-===================================================== */
+   DATASET MANAGEMENT
+   All routes require authentication
+ ===================================================== */
 
 // Get all datasets
-router.get("/datasets", getAllDatasets);
+router.get("/datasets", protect, getAllDatasets);
 
 // Get dataset by ID
-router.get("/datasets/:id", getDatasetById);
+router.get("/datasets/:id", protect, getDatasetById);
 
 // Get dataset status
-router.get("/dataset-status/:id", getDatasetStatus);
+router.get("/dataset-status/:id", protect, getDatasetStatus);
 
 // Update dataset status (admin / debug)
-router.patch("/datasets/:id/status", updateDatasetStatus);
+router.patch("/datasets/:id/status", protect, updateDatasetStatus);
+
+// Delete dataset
+router.delete("/datasets/:id", protect, deleteDataset);
 
 /* =====================================================
-   ML PIPELINE AUTOMATION (PROTECTED)
+   ML PIPELINE AUTOMATION
 ===================================================== */
 
 // Clean dataset (Python script)
-router.post("/datasets/:id/clean", cleanDataset);
+router.post("/datasets/:id/clean", protect, cleanDataset);
 
 // Train ML model (Python script)
-router.post("/datasets/:id/train", trainDataset);
+router.post("/datasets/:id/train", protect, trainDataset);
 
 // Get data analysis report
-router.get("/datasets/:id/analysis", getAnalysis);
+router.get("/datasets/:id/analysis", protect, getAnalysis);
 
 // Get trained model metrics
-router.get("/datasets/:id/metrics", getMetrics);
+router.get("/datasets/:id/metrics", protect, getMetrics);
 
 // Get dashboard configuration (charts, insights, KPIs)
 router.get("/dashboard/:id", getDashboardConfig);

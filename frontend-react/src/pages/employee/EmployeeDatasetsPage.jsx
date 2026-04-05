@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, FileText, Eye, Sparkles, LayoutDashboard, ChevronDown, ChevronUp, RefreshCw, Settings, X, BarChart3 } from 'lucide-react';
-import { getDatasets } from '../../services/api';
+import { Search, FileText, Eye, ChevronDown, ChevronUp, RefreshCw, BarChart3, Trash2, AlertTriangle, X } from 'lucide-react';
+import axios from 'axios';
+import { getDatasets, deleteDataset } from '../../services/api';
 import EmployeeLayout from '../../layout/EmployeeLayout';
+
+const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 const MOCK_DATASETS = [
   {
@@ -31,28 +34,6 @@ const MOCK_DATASETS = [
     rows: 3200, cols: 9, size: '1.8 MB', version: 'v1',
     updated: '5 days ago', versions: []
   },
-  {
-    id: 'ds-004', name: 'HR_Employee_Records', type: 'csv', status: 'ready',
-    source: 'acme-hr', path: '/hr/employees/master.csv',
-    rows: 892, cols: 18, size: '0.6 MB', version: 'v2',
-    updated: '1 week ago',
-    versions: [
-      { tag: 'v2', desc: 'Cleaned · 892 rows', date: 'Jan 12 2025', current: true },
-      { tag: 'v1', desc: 'Raw · 950 rows', date: 'Dec 28 2024' },
-    ]
-  },
-  {
-    id: 'ds-005', name: 'Inventory_2024', type: 'json', status: 'ready',
-    source: 'acme-ops', path: '/inventory/stock_2024.json',
-    rows: 6100, cols: 14, size: '4.2 MB', version: 'v1',
-    updated: '3 days ago', versions: []
-  },
-  {
-    id: 'ds-006', name: 'Patient_Records_2024', type: 'csv', status: 'no-access',
-    source: 'acme-health', path: '/health/patients.csv',
-    rows: null, cols: null, size: null, version: null,
-    updated: null, versions: []
-  },
 ];
 
 const typeIcons = { csv: '📄', xlsx: '📊', json: '🗂' };
@@ -69,8 +50,9 @@ const EmployeeDatasetsPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [expandedVersions, setExpandedVersions] = useState({});
   const [previewModal, setPreviewModal] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -78,24 +60,26 @@ const EmployeeDatasetsPage = () => {
         const res = await getDatasets();
         if (res.success && res.data?.length > 0) {
           const mapped = res.data.map((d, i) => ({
-            id: d._id || `ds-${i}`,
-            name: d.filename?.replace(/\.\w+$/, '') || `Dataset ${i + 1}`,
-            type: d.filename?.split('.').pop() || 'csv',
+            id: d.dataset_id || d._id || `ds-${i}`,
+            dataset_id: d.dataset_id || d._id,
+            name: d.filename?.replace(/\.\w+$/, '') || d.name?.replace(/\.\w+$/, '') || `Dataset ${i + 1}`,
+            type: d.filename?.split('.').pop() || d.name?.split('.').pop() || 'csv',
             status: d.status === 'completed' ? 'ready' : d.status === 'processing' ? 'cleaning' : 'new',
             source: 'server',
             path: d.filename,
-            rows: d.rows,
-            cols: d.columns,
+            rows: d.rows_count || d.rows,
+            cols: d.columns_count || d.columns,
             size: d.fileSize ? `${(d.fileSize / 1024 / 1024).toFixed(1)} MB` : '—',
             version: 'v1',
-            updated: new Date(d.uploadedAt).toLocaleDateString(),
+            updated: d.created_at ? new Date(d.created_at).toLocaleDateString() : 'recent',
             versions: [],
           }));
           setDatasets(mapped);
         } else {
           setDatasets(MOCK_DATASETS);
         }
-      } catch {
+      } catch (err) {
+        console.warn('Using mock data due to API error:', err.message);
         setDatasets(MOCK_DATASETS);
       } finally {
         setIsLoading(false);
@@ -104,36 +88,8 @@ const EmployeeDatasetsPage = () => {
     fetchData();
   }, []);
 
-  const filtered = datasets.filter(d => {
-    if (searchQuery && !d.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    if (typeFilter !== 'all' && d.type !== typeFilter) return false;
-    if (statusFilter !== 'all' && d.status !== statusFilter) return false;
-    return true;
-  });
-
-  const toggleVersions = (id) => {
-    setExpandedVersions(prev => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  const generatePreviewRows = (count) => {
-    const names = ['Priya Sharma', 'Raj Mehta', 'Sunita Patel', 'Arjun Singh', 'Kavita Nair', 'Vikram Rao'];
-    const regions = ['North', 'South', 'East', 'West', 'Central'];
-    const segments = ['Enterprise', 'SMB', 'Startup', 'Individual'];
-    const statuses = ['Active', 'Inactive', 'Churned', 'Trial'];
-    return Array.from({ length: Math.min(count, 50) }, (_, i) => ({
-      id: i + 1,
-      customer_id: `CUST-${String(i + 1).padStart(4, '0')}`,
-      name: names[i % names.length],
-      email: `user${i + 1}@acme.com`,
-      region: regions[i % regions.length],
-      segment: segments[i % segments.length],
-      revenue: `₹${(Math.random() * 100000 + 5000).toFixed(0)}`,
-      orders: Math.floor(Math.random() * 50 + 1),
-      status: statuses[i % 4],
-    }));
-  };
-
-  const openPreview = (ds) => {
+  const openPreview = async (ds) => {
+    const dsId = ds.dataset_id || ds.id;
     setPreviewModal({
       name: ds.name,
       type: ds.type,
@@ -141,30 +97,97 @@ const EmployeeDatasetsPage = () => {
       rows: ds.rows,
       cols: ds.cols,
       size: ds.size,
-      data: generatePreviewRows(ds.rows || 50),
+      _datasetId: dsId,
+      loading: true,
+      data: [],
     });
+
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_URL}/cleaned-data/${dsId}?limit=50&page=1`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.data && res.data.success && res.data.rows) {
+        setPreviewModal(prev => ({
+          ...prev,
+          loading: false,
+          data: res.data.rows || [],
+          headers: res.data.headers || [],
+          rows: res.data.totalRows,
+          error: null,
+        }));
+      } else {
+        setPreviewModal(prev => ({ 
+          ...prev, 
+          loading: false, 
+          data: [], 
+          error: res.data?.message || 'Failed to load data' 
+        }));
+      }
+    } catch (err) {
+      console.warn('Preview error:', err.message);
+      setPreviewModal(prev => ({ 
+        ...prev, 
+        loading: false, 
+        data: [], 
+        error: err.response?.data?.message || 'Unable to load preview. Please try again.' 
+      }));
+    }
   };
+
+  const handleDelete = async (ds, e) => {
+    e.stopPropagation();
+    const dsId = ds.dataset_id || ds.id;
+    setDeleteConfirm({ id: dsId, name: ds.name });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
+    setIsDeleting(deleteConfirm.id);
+    try {
+      const res = await deleteDataset(deleteConfirm.id);
+      if (res.success) {
+        setDatasets(datasets.filter(d => (d.dataset_id || d.id) !== deleteConfirm.id));
+      } else {
+        alert(res.message || 'Failed to delete dataset');
+      }
+    } catch (err) {
+      console.error('Delete error:', err);
+      alert('Failed to delete dataset');
+    } finally {
+      setIsDeleting(null);
+      setDeleteConfirm(null);
+    }
+  };
+
+  const cancelDelete = () => {
+    setDeleteConfirm(null);
+    setIsDeleting(null);
+  };
+
+  const filtered = datasets.filter(ds => {
+    const matchesSearch = ds.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesType = typeFilter === 'all' || ds.type === typeFilter;
+    const matchesStatus = statusFilter === 'all' || ds.status === statusFilter;
+    return matchesSearch && matchesType && matchesStatus;
+  });
 
   const StatusBadge = ({ status }) => {
     const config = {
-      ready: { bg: 'rgba(63,185,80,0.1)', color: 'var(--success)', label: '● Ready' },
-      cleaning: { bg: 'rgba(210,153,34,0.1)', color: 'var(--warning)', label: '⟳ Cleaning' },
-      new: { bg: 'rgba(139,148,158,0.1)', color: 'var(--text-muted)', label: '○ Not Cleaned' },
-      'no-access': { bg: 'rgba(248,81,73,0.1)', color: 'var(--danger)', label: '🔒 No Access' },
-    }[status] || { bg: 'rgba(139,148,158,0.1)', color: 'var(--text-muted)', label: status };
+      ready: { bg: 'rgba(63,185,80,0.1)', color: '#3fb950', label: '● Ready' },
+      cleaning: { bg: 'rgba(210,153,34,0.1)', color: '#d29922', label: '⟳ Cleaning' },
+      new: { bg: 'rgba(139,148,158,0.1)', color: 'rgba(139, 148, 158, 0.8)', label: '○ Not Cleaned' },
+      'no-access': { bg: 'rgba(248,81,73,0.1)', color: '#f85149', label: '🔒 No Access' },
+    }[status] || { bg: 'rgba(139,148,158,0.1)', color: 'rgba(139, 148, 158, 0.8)', label: status };
     return (
-      <span style={{
-        display: 'inline-flex', alignItems: 'center', gap: 5,
-        fontFamily: "'DM Mono', 'Courier New', monospace", fontSize: 10,
-        padding: '3px 9px', borderRadius: 20,
-        background: config.bg, color: config.color,
-      }}>{config.label}</span>
+      <span className="emp-status-badge" style={{ background: config.bg, color: config.color }}>
+        {config.label}
+      </span>
     );
   };
 
   return (
     <EmployeeLayout>
-      {/* Topbar */}
       <div className="emp-topbar">
         <div>
           <div className="emp-topbar-title">Company Datasets</div>
@@ -184,268 +207,145 @@ const EmployeeDatasetsPage = () => {
       </div>
 
       <div className="emp-content">
-        {/* Connection Banner */}
-        <div style={{
-          background: 'rgba(22,27,34,0.7)', border: '1px solid var(--border-color)',
-          borderRadius: 12, padding: '14px 20px', marginBottom: 24,
-          display: 'flex', alignItems: 'center', gap: 14,
-        }}>
-          <div style={{
-            width: 8, height: 8, borderRadius: '50%', background: 'var(--success)',
-            boxShadow: '0 0 8px var(--success)', flexShrink: 0,
-            animation: 'adminPulse 2s infinite',
-          }} />
-          <div>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: 'var(--text-main)' }}>
-              Connected to <strong style={{ color: 'var(--success)' }}>Acme Corp Server</strong> · db-prod-01.acme.internal
-            </div>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
-              Last synced 2 min ago · {datasets.length} datasets available
-            </div>
+        {datasets.length > 0 && (
+          <div className="glass-panel" style={{ padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#3fb950' }} />
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {datasets.length} dataset{datasets.length !== 1 ? 's' : ''} available
+            </span>
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <button className="emp-btn emp-btn-ghost emp-btn-sm"><RefreshCw size={12} /> Sync Now</button>
-            <button className="emp-btn emp-btn-ghost emp-btn-sm"><Settings size={12} /> Connections</button>
-          </div>
-        </div>
+        )}
 
-        {/* Filters */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20, alignItems: 'center', flexWrap: 'wrap' }}>
-          <select className="admin-filter-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
+        <div className="emp-filters">
+          <select className="emp-filter-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
             <option value="all">All Types</option>
             <option value="csv">CSV</option>
             <option value="xlsx">Excel</option>
             <option value="json">JSON</option>
           </select>
-          <select className="admin-filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <select className="emp-filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="all">All Statuses</option>
             <option value="ready">Ready</option>
             <option value="cleaning">Cleaning</option>
             <option value="new">Not Cleaned</option>
           </select>
-          <select className="admin-filter-select">
-            <option>Sort: Last Updated</option>
-            <option>Sort: Name A–Z</option>
-            <option>Sort: Size</option>
-            <option>Sort: Row Count</option>
-          </select>
-          <div style={{ width: 1, height: 20, background: 'var(--border-color)', margin: '0 4px' }} />
-          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)', marginLeft: 'auto' }}>
-            Showing {filtered.length} dataset{filtered.length !== 1 ? 's' : ''}
+          <div className="emp-filter-divider" />
+          <div className="emp-filter-count">
+            {filtered.length} dataset{filtered.length !== 1 ? 's' : ''}
           </div>
         </div>
 
-        {/* Dataset Grid */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
-          gap: 16,
-        }}>
+        <div className="emp-dataset-grid">
           {isLoading ? (
             Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="glass-panel" style={{ padding: 20, height: 200, animation: 'adminFadeUp 0.5s ease both', animationDelay: `${i * 0.05}s` }}>
-                <div style={{ width: '60%', height: 16, background: 'rgba(255,255,255,0.06)', borderRadius: 4, marginBottom: 12 }} />
-                <div style={{ width: '40%', height: 10, background: 'rgba(255,255,255,0.04)', borderRadius: 4, marginBottom: 20 }} />
-                <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-                  {[1,2,3].map(j => <div key={j} style={{ width: 60, height: 20, background: 'rgba(255,255,255,0.04)', borderRadius: 4 }} />)}
+              <div key={i} className="emp-skeleton" style={{ animationDelay: `${i * 0.05}s` }}>
+                <div className="emp-skeleton-title" />
+                <div className="emp-skeleton-sub" />
+                <div className="emp-skeleton-chips">
+                  <div className="emp-skeleton-chip" />
+                  <div className="emp-skeleton-chip" />
                 </div>
               </div>
             ))
           ) : filtered.length === 0 ? (
-            <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '64px 24px' }}>
-              <div style={{ fontSize: 40, marginBottom: 16, opacity: 0.5 }}>📂</div>
-              <h3 style={{ color: 'var(--text-muted)', marginBottom: 6 }}>No datasets found</h3>
-              <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: 'var(--text-muted)' }}>
-                Try adjusting your search or filters
-              </p>
+            <div className="emp-empty">
+              <FileText size={48} color="var(--text-muted)" />
+              <div className="emp-empty-title">No datasets found</div>
+              <div className="emp-empty-sub">Try adjusting your filters or upload a new dataset</div>
             </div>
           ) : (
-            filtered.map((ds, idx) => (
-              <div
-                key={ds.id}
-                className="glass-panel"
-                style={{
-                  borderRadius: 14, overflow: 'hidden', cursor: 'pointer',
-                  transition: 'all 0.2s', position: 'relative',
-                  borderColor: ds.status === 'ready' ? 'rgba(63,185,80,0.15)' : ds.status === 'cleaning' ? 'rgba(210,153,34,0.15)' : undefined,
-                  opacity: ds.status === 'no-access' ? 0.6 : 1,
-                  animation: 'adminFadeUp 0.4s ease both',
-                  animationDelay: `${idx * 0.04}s`,
-                }}
-                onMouseEnter={e => {
-                  if (ds.status !== 'no-access') {
-                    e.currentTarget.style.borderColor = 'rgba(88,166,255,0.3)';
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 8px 32px rgba(0,0,0,0.4)';
-                  }
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.borderColor = ds.status === 'ready' ? 'rgba(63,185,80,0.15)' : ds.status === 'cleaning' ? 'rgba(210,153,34,0.15)' : '';
-                  e.currentTarget.style.transform = '';
-                  e.currentTarget.style.boxShadow = '';
-                }}
-              >
-                {/* Card Top */}
-                <div style={{ padding: '18px 20px 14px', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: 10, flexShrink: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
-                    background: typeColors[ds.type]?.bg || 'rgba(255,255,255,0.05)',
-                  }}>
-                    {typeIcons[ds.type] || '📄'}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', lineHeight: 1.3 }}>{ds.name}</div>
-                    <div style={{
-                      fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)',
-                      marginTop: 3, display: 'flex', alignItems: 'center', gap: 4,
-                    }}>
-                      <span style={{
-                        width: 5, height: 5, borderRadius: '50%',
-                        background: ds.status === 'no-access' ? 'var(--text-muted)' : 'var(--success)',
-                      }} />
-                      {ds.source} · {ds.path}
+            filtered.map((ds) => (
+              <div key={ds.id} className="glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
+                <div style={{ padding: '16px 20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ 
+                        width: 40, height: 40, borderRadius: 10, 
+                        background: typeColors[ds.type]?.bg || 'rgba(139,148,158,0.1)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: '1.25rem'
+                      }}>
+                        {typeIcons[ds.type] || '📄'}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{ds.name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                          {ds.type.toUpperCase()} · {ds.source} · {ds.version}
+                        </div>
+                      </div>
                     </div>
+                    <StatusBadge status={ds.status} />
                   </div>
-                  <StatusBadge status={ds.status} />
+
+                  <div style={{ display: 'flex', gap: 20, marginBottom: 8 }}>
+                    {ds.rows && (
+                      <div>
+                        <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>{ds.rows?.toLocaleString()}</div>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Rows</div>
+                      </div>
+                    )}
+                    {ds.cols && (
+                      <div>
+                        <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>{ds.cols}</div>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Columns</div>
+                      </div>
+                    )}
+                    {ds.size && ds.size !== '—' && (
+                      <div>
+                        <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>{ds.size}</div>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Size</div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: "'DM Mono', monospace" }}>
+                    Updated {ds.updated}
+                  </div>
                 </div>
 
-                {/* Meta chips */}
-                <div style={{ padding: '0 20px 14px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {ds.rows != null && <span style={chipStyle}>📋 {ds.rows.toLocaleString()} rows</span>}
-                  {ds.cols != null && <span style={chipStyle}>⊞ {ds.cols} cols</span>}
-                  {ds.size && <span style={chipStyle}>💾 {ds.size}</span>}
-                  {ds.version && <span style={chipStyle}>{ds.version}</span>}
-                </div>
-
-                {/* Cleaning progress */}
-                {ds.status === 'cleaning' && (
-                  <div style={{ padding: '0 20px 12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginBottom: 4 }}>
-                      <span>Step {ds.cleaningStep}</span><span>{ds.cleaningProgress}%</span>
-                    </div>
-                    <div style={{ height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
-                      <div style={{
-                        height: '100%', width: `${ds.cleaningProgress}%`,
-                        background: 'linear-gradient(90deg, var(--primary), var(--accent))',
-                        borderRadius: 3, transition: 'width 1s ease',
-                      }} />
-                    </div>
-                  </div>
-                )}
-
-                {/* Divider */}
-                <div style={{ height: 1, background: 'rgba(255,255,255,0.03)', margin: '0 20px' }} />
-
-                {/* Bottom */}
-                <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)' }}>
-                    {ds.updated ? `Updated ${ds.updated}` : 'Contact admin for access'}
-                  </div>
+                <div style={{ borderTop: '1px solid var(--border-color)', padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(13,17,23,0.5)' }}>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    {ds.versions.length > 0 && (
-                      <button className="emp-btn emp-btn-ghost emp-btn-sm"
-                        onClick={(e) => { e.stopPropagation(); toggleVersions(ds.id); }}>
-                        {expandedVersions[ds.id] ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                        Versions
-                      </button>
-                    )}
-                    {ds.status !== 'no-access' && ds.status !== 'cleaning' && (
-                      <button className="emp-btn emp-btn-ghost emp-btn-sm"
-                        onClick={(e) => { e.stopPropagation(); openPreview(ds); }}>
-                        <Eye size={12} /> Preview
-                      </button>
-                    )}
+                    <button className="emp-btn emp-btn-ghost emp-btn-sm"
+                      onClick={(e) => { e.stopPropagation(); openPreview(ds); }}>
+                      <Eye size={12} /> Preview
+                    </button>
                     {ds.status === 'ready' && (
                       <button className="emp-btn emp-btn-primary emp-btn-sm"
-                        onClick={(e) => { e.stopPropagation(); navigate(`/employee/cleaning?ds=${ds.id}`); }}>
-                        Open →
-                      </button>
-                    )}
-                    {ds.status === 'cleaning' && (
-                      <button className="emp-btn emp-btn-primary emp-btn-sm"
-                        onClick={(e) => { e.stopPropagation(); navigate('/employee/cleaning'); }}>
-                        View Progress →
-                      </button>
-                    )}
-                    {ds.status === 'new' && (
-                      <button className="emp-btn emp-btn-primary emp-btn-sm"
-                        onClick={(e) => { e.stopPropagation(); navigate('/employee/cleaning'); }}>
-                        Start Cleaning →
-                      </button>
-                    )}
-                    {ds.status === 'ready' && (
-                      <button className="emp-btn emp-btn-ghost emp-btn-sm"
-                        onClick={(e) => { e.stopPropagation(); navigate(`/employee/visualization?ds=${ds.id}&name=${encodeURIComponent(ds.name)}`); }}>
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          const dsId = ds.dataset_id || ds.id;
+                          navigate(`/employee/visualization?ds=${dsId}&name=${encodeURIComponent(ds.name)}`);
+                        }}>
                         <BarChart3 size={12} /> Visualize
                       </button>
                     )}
-                    {ds.status === 'ready' && (
-                      <button className="emp-btn emp-btn-ghost emp-btn-sm"
-                        onClick={(e) => { e.stopPropagation(); navigate('/employee/dashboard'); }}>
-                        <LayoutDashboard size={12} /> Dashboard →
-                      </button>
-                    )}
-                    {ds.status === 'no-access' && (
-                      <button className="emp-btn emp-btn-ghost emp-btn-sm">Request Access</button>
-                    )}
                   </div>
+                  <button 
+                    className="emp-btn emp-btn-ghost emp-btn-sm"
+                    onClick={(e) => { e.stopPropagation(); handleDelete(ds, e); }}
+                    style={{ color: 'var(--danger)' }}
+                    disabled={isDeleting === (ds.dataset_id || ds.id)}
+                  >
+                    {isDeleting === (ds.dataset_id || ds.id) ? (
+                      <RefreshCw size={12} className="spin" />
+                    ) : (
+                      <Trash2 size={12} />
+                    )}
+                  </button>
                 </div>
-
-                {/* Version drawer */}
-                {expandedVersions[ds.id] && ds.versions.length > 0 && (
-                  <div style={{
-                    borderTop: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.02)',
-                    padding: '12px 20px',
-                  }}>
-                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>
-                      Version History
-                    </div>
-                    {ds.versions.map((v, i) => (
-                      <div key={i} style={{
-                        display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0',
-                        borderBottom: i < ds.versions.length - 1 ? '1px solid rgba(255,255,255,0.025)' : 'none',
-                        fontSize: 12,
-                      }}>
-                        <span style={{
-                          fontFamily: "'DM Mono', monospace", fontSize: 10,
-                          color: 'var(--primary)', background: 'rgba(88,166,255,0.08)',
-                          padding: '2px 7px', borderRadius: 5,
-                        }}>{v.tag}</span>
-                        <span style={{ color: 'var(--text-main)' }}>{v.desc}</span>
-                        {v.current && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--success)' }}>● current</span>}
-                        {v.active && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--success)' }}>● active</span>}
-                        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)', marginLeft: 'auto' }}>{v.date}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             ))
           )}
         </div>
       </div>
 
-      {/* Preview Modal */}
       {previewModal && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)',
-          backdropFilter: 'blur(4px)', zIndex: 500,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }} onClick={() => setPreviewModal(null)}>
-          <div className="glass-panel" style={{
-            width: '90vw', maxWidth: 1100, maxHeight: '85vh',
-            display: 'flex', flexDirection: 'column', overflow: 'hidden',
-            animation: 'adminFadeUp 0.25s ease',
-          }} onClick={e => e.stopPropagation()}>
-            {/* Modal header */}
-            <div style={{
-              padding: '18px 24px', borderBottom: '1px solid var(--border-color)',
-              display: 'flex', alignItems: 'center', gap: 14,
-            }}>
+        <div className="emp-modal-overlay" onClick={() => setPreviewModal(null)}>
+          <div className="glass-panel emp-modal" onClick={e => e.stopPropagation()}>
+            <div className="emp-modal-header">
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 18, fontWeight: 600, color: '#fff' }}>{previewModal.name}</div>
-                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+                <div className="emp-modal-title">{previewModal.name}</div>
+                <div className="emp-modal-subtitle">
                   {previewModal.type?.toUpperCase()} · {previewModal.version} · First 50 rows · Read-only
                 </div>
               </div>
@@ -454,67 +354,89 @@ const EmployeeDatasetsPage = () => {
               </button>
             </div>
 
-            {/* Info bar */}
-            <div style={{
-              padding: '12px 24px', background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border-color)',
-              display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap',
-            }}>
-              {previewModal.rows && <span style={pinfoStyle}>📋 <strong>{previewModal.rows.toLocaleString()}</strong> total rows</span>}
-              {previewModal.cols && <span style={pinfoStyle}>⊞ <strong>{previewModal.cols}</strong> columns</span>}
-              {previewModal.size && <span style={pinfoStyle}>💾 <strong>{previewModal.size}</strong></span>}
-              <span style={pinfoStyle}>Version <strong>{previewModal.version}</strong></span>
+            <div className="emp-modal-info">
+              {previewModal.rows && <span className="emp-modal-info-item">📋 <strong>{previewModal.rows.toLocaleString()}</strong> total rows</span>}
+              {previewModal.cols && <span className="emp-modal-info-item">⊞ <strong>{previewModal.cols}</strong> columns</span>}
+              {previewModal.size && <span className="emp-modal-info-item">💾 <strong>{previewModal.size}</strong></span>}
+              <span className="emp-modal-info-item">Version <strong>{previewModal.version}</strong></span>
             </div>
 
-            {/* Table */}
-            <div style={{ flex: 1, overflow: 'auto' }}>
-              <table style={{
-                width: '100%', borderCollapse: 'collapse',
-                fontFamily: "'DM Mono', monospace", fontSize: 12,
-              }}>
-                <thead>
-                  <tr>
-                    {['#', 'customer_id', 'name', 'email', 'region', 'segment', 'revenue', 'orders', 'status'].map(col => (
-                      <th key={col} style={{
-                        background: 'rgba(13,17,23,0.95)', padding: '10px 14px', textAlign: 'left',
-                        color: 'var(--text-muted)', fontSize: 10, letterSpacing: 1, textTransform: 'uppercase',
-                        borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, whiteSpace: 'nowrap',
-                      }}>{col}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {previewModal.data.map((row, i) => (
-                    <tr key={i} style={{ transition: 'background 0.15s' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-                      onMouseLeave={e => e.currentTarget.style.background = ''}>
-                      <td style={tdStyle}>{row.id}</td>
-                      <td style={tdStyle}>{row.customer_id}</td>
-                      <td style={tdStyle}>{row.name}</td>
-                      <td style={tdStyle}>{row.email}</td>
-                      <td style={tdStyle}>{row.region}</td>
-                      <td style={tdStyle}>{row.segment}</td>
-                      <td style={tdStyle}>{row.revenue}</td>
-                      <td style={tdStyle}>{row.orders}</td>
-                      <td style={{
-                        ...tdStyle,
-                        color: row.status === 'Active' ? 'var(--success)' : row.status === 'Churned' ? 'var(--danger)' : 'var(--text-muted)',
-                      }}>{row.status}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="emp-modal-body" style={{ overflowX: 'auto' }}>
+              {previewModal.loading ? (
+                <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <div className="spin" style={{ marginBottom: '1rem' }}>
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2">
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
+                  </div>
+                  Loading preview...
+                </div>
+              ) : previewModal.error ? (
+                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--danger)' }}>
+                  <div style={{ marginBottom: '0.5rem', fontSize: '1.5rem' }}>⚠️</div>
+                  <div style={{ fontWeight: 500 }}>Unable to load preview</div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>{previewModal.error}</div>
+                  <button 
+                    className="emp-btn emp-btn-ghost emp-btn-sm" 
+                    style={{ marginTop: '1rem' }}
+                    onClick={() => {
+                      const retryDs = { 
+                        dataset_id: previewModal._datasetId, 
+                        name: previewModal.name 
+                      };
+                      setPreviewModal({
+                        name: previewModal.name,
+                        type: previewModal.type,
+                        version: previewModal.version,
+                        rows: previewModal.rows,
+                        cols: previewModal.cols,
+                        size: previewModal.size,
+                        loading: true,
+                        data: [],
+                      });
+                      openPreview(retryDs);
+                    }}
+                  >
+                    Try Again
+                  </button>
+                </div>
+              ) : previewModal.data.length > 0 ? (
+                <div style={{ minWidth: '100%', overflowX: 'auto' }}>
+                  <table className="emp-modal-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        {(previewModal.headers || Object.keys(previewModal.data[0])).map(col => (
+                          <th key={col}>{col}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewModal.data.map((row, i) => (
+                        <tr key={i}>
+                          <td style={{ color: 'var(--text-muted)' }}>{i + 1}</td>
+                          {(previewModal.headers || Object.keys(previewModal.data[0])).map((col, ci) => (
+                            <td key={ci} style={{ fontFamily: "'DM Mono', monospace", whiteSpace: 'nowrap', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {row[col] === null || row[col] === undefined || row[col] === '' ? <span style={{ color: 'var(--text-muted)', opacity: 0.5 }}>null</span> : String(row[col])}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  No preview data available. The dataset may still be processing.
+                </div>
+              )}
             </div>
 
-            {/* Footer */}
-            <div style={{
-              padding: '14px 24px', borderTop: '1px solid var(--border-color)',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              background: 'rgba(13,17,23,0.95)',
-            }}>
-              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)' }}>
-                Showing first 50 of {previewModal.rows?.toLocaleString() || '—'} rows
+            <div className="emp-modal-footer">
+              <div className="emp-modal-footer-info">
+                {previewModal.loading ? 'Loading...' : `Showing first ${previewModal.data.length} of ${previewModal.rows?.toLocaleString() || '—'} rows`}
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div className="emp-modal-footer-actions">
                 <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={() => setPreviewModal(null)}>Close</button>
                 <button className="emp-btn emp-btn-primary emp-btn-sm" onClick={() => { setPreviewModal(null); navigate('/employee/cleaning'); }}>
                   Open in Cleaning →
@@ -525,30 +447,37 @@ const EmployeeDatasetsPage = () => {
         </div>
       )}
 
-      <style>{`
-        @keyframes adminPulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-      `}</style>
+      {deleteConfirm && (
+        <div className="emp-modal-overlay" onClick={cancelDelete}>
+          <div className="glass-panel emp-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <div className="emp-modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <AlertTriangle size={20} color="var(--danger)" />
+                <div className="emp-modal-title">Delete Dataset?</div>
+              </div>
+            </div>
+            <div style={{ padding: '1.25rem' }}>
+              <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                This will permanently delete <strong style={{ color: '#fff' }}>{deleteConfirm.name}</strong> and all its files. This action cannot be undone.
+              </p>
+            </div>
+            <div className="emp-modal-footer">
+              <div className="emp-modal-footer-actions" style={{ justifyContent: 'flex-end', gap: '0.5rem' }}>
+                <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={cancelDelete}>Cancel</button>
+                <button 
+                  className="emp-btn emp-btn-sm" 
+                  onClick={confirmDelete}
+                  style={{ background: 'var(--danger)', border: 'none', color: '#fff' }}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </EmployeeLayout>
   );
-};
-
-const chipStyle = {
-  fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)',
-  background: 'rgba(255,255,255,0.04)', padding: '3px 8px', borderRadius: 6,
-  display: 'flex', alignItems: 'center', gap: 4,
-};
-
-const pinfoStyle = {
-  fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)',
-  display: 'flex', alignItems: 'center', gap: 5,
-};
-
-const tdStyle = {
-  padding: '10px 14px', color: 'var(--text-muted)',
-  borderBottom: '1px solid rgba(255,255,255,0.025)', whiteSpace: 'nowrap',
 };
 
 export default EmployeeDatasetsPage;

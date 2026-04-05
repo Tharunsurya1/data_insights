@@ -1,9 +1,8 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-// import mongoose from "mongoose";
 
-import connectDB from "./config/db.js";
+import connectDB, { pool } from "./config/db.js";
 import errorHandler from "./middleware/errorMiddleware.js";
 import "./queue/pipelineWorker.js";
 
@@ -17,7 +16,7 @@ import authRoutes from "./routes/authRoutes.js";
 import cleanedDataRoutes from "./routes/cleanedDataRoutes.js";
 
 dotenv.config();
-connectDB();
+await connectDB();
 
 const app = express();
 
@@ -41,16 +40,19 @@ app.get("/", (req, res) => {
 });
 
 /* ========== DIAGNOSTIC ENDPOINT ========== */
-app.get("/api/health", (req, res) => {
-  res.json({
-    server: "running",
-    mongodb: "mocked",
-    mongodbState: 1,
-    env: {
-      hasMongoUri: !!process.env.MONGO_URI,
-      port: process.env.PORT || 5000,
+app.get("/api/health", async (req, res) => {
+    let pgStatus = "disconnected";
+    try {
+        const result = await pool.query("SELECT 1");
+        pgStatus = result.rows ? "connected" : "error";
+    } catch (e) {
+        pgStatus = "error";
     }
-  });
+    res.json({
+        server: "running",
+        postgresql: pgStatus,
+        port: process.env.PORT || 5000,
+    });
 });
 
 /* ========== ERROR HANDLER ========== */

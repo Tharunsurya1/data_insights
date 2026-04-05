@@ -4,6 +4,7 @@ import Login from "./pages/Login";
 import AdminLogin from "./pages/AdminLogin";
 import Signup from "./pages/Signup";
 import MainLayout from './layout/MainLayout';
+import AdminLayout from './layout/AdminLayout';
 import DashboardPage from './pages/DashboardPage';
 import DatasetsPage from './pages/DatasetsPage';
 import ChatPage from './pages/ChatPage';
@@ -37,29 +38,29 @@ export default function App() {
         <Route path="/signup/:role" element={<Signup />} />
 
         {/* Protected Admin Pipeline */}
-        <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
-        <Route path="/admin/logs" element={<ProtectedRoute><LogsPage /></ProtectedRoute>} />
-        <Route path="/admin/permissions" element={<ProtectedRoute><PermissionPage /></ProtectedRoute>} />
+        <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AdminLayout><AdminDashboard /></AdminLayout></ProtectedRoute>} />
+        <Route path="/admin/logs" element={<ProtectedRoute allowedRoles={['admin']}><AdminLayout><LogsPage /></AdminLayout></ProtectedRoute>} />
+        <Route path="/admin/permissions" element={<ProtectedRoute allowedRoles={['admin']}><AdminLayout><PermissionPage /></AdminLayout></ProtectedRoute>} />
 
         {/* Data Pipeline (wrapped in MainLayout) */}
-        <Route path="/upload" element={<MainLayout><UploadPage /></MainLayout>} />
-        <Route path="/datasets" element={<MainLayout><DatasetsPage /></MainLayout>} />
-        <Route path="/dashboard/:datasetId" element={<MainLayout><DashboardPage /></MainLayout>} />
-        <Route path="/chat/:datasetId" element={<MainLayout><ChatPage /></MainLayout>} />
-        <Route path="/datachat" element={<MainLayout><DataChatPage /></MainLayout>} />
-        <Route path="/visualization/:datasetId" element={<MainLayout><VisualizationPage /></MainLayout>} />
+        <Route path="/upload" element={<ProtectedRoute><MainLayout><UploadPage /></MainLayout></ProtectedRoute>} />
+        <Route path="/datasets" element={<ProtectedRoute><MainLayout><DatasetsPage /></MainLayout></ProtectedRoute>} />
+        <Route path="/dashboard/:datasetId" element={<ProtectedRoute><MainLayout><DashboardPage /></MainLayout></ProtectedRoute>} />
+        <Route path="/chat/:datasetId" element={<ProtectedRoute><MainLayout><ChatPage /></MainLayout></ProtectedRoute>} />
+        <Route path="/datachat" element={<ProtectedRoute><MainLayout><DataChatPage /></MainLayout></ProtectedRoute>} />
+        <Route path="/visualization/:datasetId" element={<ProtectedRoute><MainLayout><VisualizationPage /></MainLayout></ProtectedRoute>} />
 
-        {/* Employee Section (dedicated sidebar layout) */}
-        <Route path="/employee" element={<Navigate to="/employee/datasets" replace />} />
-        <Route path="/employee/upload" element={<UploadPage />} />
-        <Route path="/employee/datasets" element={<EmployeeDatasetsPage />} />
-        <Route path="/employee/analysis" element={<DatasetAnalysisPage />} />
-        <Route path="/employee/column-cleaning" element={<ColumnCleaningPage />} />
-        <Route path="/employee/cleaning" element={<EmployeeCleaningPage />} />
-        <Route path="/employee/dashboard" element={<EmployeeDashboardPage />} />
-        <Route path="/employee/chat" element={<EmployeeChatPage />} />
-        <Route path="/employee/summary" element={<EmployeeSummaryPage />} />
-        <Route path="/employee/visualization" element={<VisualizationPage />} />
+        {/* Employee Section (pages have their own layouts) */}
+        <Route path="/employee" element={<Navigate to="/employee/dashboard" replace />} />
+        <Route path="/employee/upload" element={<ProtectedRoute><UploadPage /></ProtectedRoute>} />
+        <Route path="/employee/datasets" element={<ProtectedRoute><EmployeeDatasetsPage /></ProtectedRoute>} />
+        <Route path="/employee/analysis" element={<ProtectedRoute><DatasetAnalysisPage /></ProtectedRoute>} />
+        <Route path="/employee/column-cleaning" element={<ProtectedRoute><ColumnCleaningPage /></ProtectedRoute>} />
+        <Route path="/employee/cleaning" element={<ProtectedRoute><EmployeeCleaningPage /></ProtectedRoute>} />
+        <Route path="/employee/dashboard" element={<ProtectedRoute><EmployeeDashboardPage /></ProtectedRoute>} />
+        <Route path="/employee/chat" element={<ProtectedRoute><EmployeeChatPage /></ProtectedRoute>} />
+        <Route path="/employee/summary" element={<ProtectedRoute><EmployeeSummaryPage /></ProtectedRoute>} />
+        <Route path="/employee/visualization" element={<ProtectedRoute><VisualizationPage /></ProtectedRoute>} />
       </Routes>
     </BrowserRouter>
   );

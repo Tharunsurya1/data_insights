@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, Sparkles, Zap, AlertTriangle, ArrowRight, Settings2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Sparkles, Zap, AlertTriangle, ArrowRight, Settings2, RefreshCw, FileCheck, Activity, BarChart3, UploadCloud } from 'lucide-react';
 import EmployeeLayout from '../../layout/EmployeeLayout';
+
+const PIPELINE_STEPS = [
+  { id: 1, label: 'Uploading', icon: UploadCloud },
+  { id: 2, label: 'Validating', icon: FileCheck },
+  { id: 3, label: 'Cleaning', icon: Sparkles },
+  { id: 4, label: 'Analyzing', icon: Activity },
+  { id: 5, label: 'Dashboard', icon: BarChart3 },
+];
 
 const CLEANING_STRATEGIES = {
   numeric: [
@@ -117,10 +125,11 @@ const ColumnCleaningPage = () => {
 
   const handleClean = async () => {
     setCleaning(true);
-    // Simulate cleaning steps
-    for (let i = 0; i <= columns.length; i++) {
-      setCleaningStep(i);
-      await new Promise(r => setTimeout(r, 400 + Math.random() * 300));
+    // Simulate cleaning pipeline steps
+    const stepOrder = [0, 1, 2, 3, 4]; // Uploading -> Validating -> Cleaning -> Analyzing -> Dashboard
+    for (let i = 0; i < stepOrder.length; i++) {
+      setCleaningStep(stepOrder[i]);
+      await new Promise(r => setTimeout(r, 800 + Math.random() * 500));
     }
     setCompleted(true);
     setCleaning(false);
@@ -130,62 +139,88 @@ const ColumnCleaningPage = () => {
     navigate(`/employee/dashboard?ds=${datasetId}&name=${encodeURIComponent(datasetName)}`);
   };
 
+  // Get step status
+  const getStepStatus = (stepIndex) => {
+    if (completed) return 'completed';
+    if (cleaningStep >= stepIndex) return 'active';
+    return 'pending';
+  };
+
   // Cleaning progress
   if (cleaning || completed) {
     return (
       <EmployeeLayout>
         <div className="emp-topbar">
           <div>
-            <div className="emp-topbar-title">{completed ? 'Cleaning Complete' : 'Cleaning in Progress'}</div>
-            <div className="emp-topbar-sub">{datasetName} · {columns.length} columns</div>
+            <div className="emp-topbar-title">{completed ? 'Pipeline Complete' : 'Processing Dataset'}</div>
+            <div className="emp-topbar-sub">{datasetName}</div>
           </div>
         </div>
         <div className="emp-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
-          <div className="glass-panel" style={{ width: '100%', maxWidth: 600, padding: '2.5rem 2rem', textAlign: 'center' }}>
-            {/* Step indicators */}
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 28, flexWrap: 'wrap' }}>
-              {columns.map((col, i) => (
-                <div key={i} style={{
-                  width: 28, height: 28, borderRadius: '50%',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10,
-                  border: `2px solid ${cleaningStep > i ? 'var(--success)' : cleaningStep === i ? 'var(--primary)' : 'var(--border-color)'}`,
-                  background: cleaningStep > i ? 'var(--success)' : cleaningStep === i ? 'var(--primary)' : 'transparent',
-                  color: (cleaningStep > i || cleaningStep === i) ? '#fff' : 'var(--text-muted)',
-                  transition: 'all 0.3s',
-                }}>
-                  {cleaningStep > i ? <CheckCircle2 size={14} /> : i + 1}
-                </div>
-              ))}
+          <div className="glass-panel" style={{ width: '100%', maxWidth: 700, padding: '2.5rem 2rem', textAlign: 'center' }}>
+            
+            {/* Pipeline Steps */}
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 32 }}>
+              {PIPELINE_STEPS.map((step, i) => {
+                const status = getStepStatus(i);
+                const Icon = step.icon;
+                return (
+                  <div key={step.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flex: 1 }}>
+                    <div style={{
+                      width: 44, height: 44, borderRadius: '50%',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      border: `2px solid ${
+                        status === 'completed' ? 'var(--success)' : 
+                        status === 'active' ? 'var(--primary)' : 'var(--border-color)'
+                      }`,
+                      background: status === 'completed' ? 'var(--success)' : status === 'active' ? 'var(--primary)' : 'transparent',
+                      color: (status === 'completed' || status === 'active') ? '#fff' : 'var(--text-muted)',
+                      transition: 'all 0.3s',
+                    }}>
+                      {status === 'completed' ? <CheckCircle2 size={20} /> : status === 'active' ? <Icon size={18} className="spin" /> : <Icon size={18} />}
+                    </div>
+                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5,
+                      color: status === 'active' ? 'var(--primary)' : status === 'completed' ? 'var(--success)' : 'var(--text-muted)',
+                    }}>{step.label}</div>
+                  </div>
+                );
+              })}
             </div>
 
             {completed ? (
               <>
-                <CheckCircle2 size={48} color="var(--success)" style={{ marginBottom: 16 }} />
-                <h2 style={{ color: 'var(--success)', marginBottom: 8 }}>Cleaning Complete</h2>
-                <p style={{ color: 'var(--text-muted)', marginBottom: 8, fontSize: 13 }}>
-                  {columns.length} columns processed · {columns.reduce((s, c) => s + c.nulls, 0)} nulls handled
+                <CheckCircle2 size={56} color="var(--success)" style={{ marginBottom: 16 }} />
+                <h2 style={{ color: 'var(--success)', marginBottom: 8, fontSize: '1.5rem' }}>Dataset Processed Successfully!</h2>
+                <p style={{ color: 'var(--text-muted)', marginBottom: 24, fontSize: 13 }}>
+                  {columns.length} columns cleaned · All pipeline stages completed
                 </p>
 
-                {/* Before/After Summary */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, margin: '20px 0', textAlign: 'left' }}>
-                  <div style={{ background: 'rgba(248,81,73,0.06)', border: '1px solid rgba(248,81,73,0.15)', borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--danger)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Before</div>
-                    <div style={{ fontSize: 18, fontWeight: 600, color: '#fff' }}>{columns.reduce((s, c) => s + c.nulls, 0)}</div>
-                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)' }}>null cells</div>
+                {/* Summary */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, margin: '20px 0' }}>
+                  <div style={{ background: 'rgba(88,166,255,0.08)', border: '1px solid rgba(88,166,255,0.2)', borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 20, fontWeight: 600, color: 'var(--primary)' }}>✓</div>
+                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Uploaded</div>
                   </div>
-                  <div style={{ background: 'rgba(63,185,80,0.06)', border: '1px solid rgba(63,185,80,0.15)', borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--success)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>After</div>
-                    <div style={{ fontSize: 18, fontWeight: 600, color: '#fff' }}>0</div>
-                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)' }}>null cells</div>
+                  <div style={{ background: 'rgba(88,166,255,0.08)', border: '1px solid rgba(88,166,255,0.2)', borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 20, fontWeight: 600, color: 'var(--primary)' }}>✓</div>
+                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Validated</div>
+                  </div>
+                  <div style={{ background: 'rgba(63,185,80,0.08)', border: '1px solid rgba(63,185,80,0.2)', borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 20, fontWeight: 600, color: 'var(--success)' }}>{columns.length}</div>
+                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Cleaned</div>
+                  </div>
+                  <div style={{ background: 'rgba(188,140,255,0.08)', border: '1px solid rgba(188,140,255,0.2)', borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 20, fontWeight: 600, color: 'var(--accent)' }}>✓</div>
+                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Analyzed</div>
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 16 }}>
-                  <button className="emp-btn emp-btn-primary" onClick={handleViewDashboard} style={{ padding: '10px 24px' }}>
-                    <Zap size={14} /> View Dashboard →
+                <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 24 }}>
+                  <button className="emp-btn emp-btn-primary" onClick={handleViewDashboard} style={{ padding: '12px 28px', fontSize: 14 }}>
+                    <BarChart3 size={16} /> View Dashboard →
                   </button>
-                  <button className="emp-btn emp-btn-ghost" onClick={() => navigate('/employee/datasets')}>
-                    Back to Datasets
+                  <button className="emp-btn emp-btn-ghost" onClick={() => navigate('/employee/analysis')}>
+                    Back to Analysis
                   </button>
                 </div>
               </>
@@ -194,19 +229,19 @@ const ColumnCleaningPage = () => {
                 <div style={{ marginBottom: 16 }}>
                   <RefreshCw size={48} color="var(--primary)" className="spin" />
                 </div>
-                <h2 style={{ color: '#fff', marginBottom: 8 }}>Cleaning Column {cleaningStep + 1} of {columns.length}</h2>
-                <p style={{ color: 'var(--primary)', fontFamily: "'DM Mono', monospace", fontSize: 13, marginBottom: 16 }}>
-                  {columns[cleaningStep]?.name}
+                <h2 style={{ color: '#fff', marginBottom: 8 }}>Processing Your Dataset</h2>
+                <p style={{ color: 'var(--primary)', fontFamily: "'DM Mono', monospace", fontSize: 14, marginBottom: 16 }}>
+                  {PIPELINE_STEPS[cleaningStep].label}...
                 </p>
-                <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 6, overflow: 'hidden', marginBottom: 12 }}>
                   <div style={{
-                    height: '100%', width: `${((cleaningStep + 1) / columns.length) * 100}%`,
-                    background: 'linear-gradient(90deg, var(--secondary), var(--primary))',
-                    borderRadius: 4, transition: 'width 0.5s ease',
+                    height: '100%', width: `${((cleaningStep + 1) / PIPELINE_STEPS.length) * 100}%`,
+                    background: 'linear-gradient(90deg, var(--primary), var(--accent))',
+                    borderRadius: 6, transition: 'width 0.5s ease',
                   }} />
                 </div>
-                <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)', marginTop: 8 }}>
-                  Strategy: {CLEANING_STRATEGIES[columns[cleaningStep]?.type]?.find(s => s.value === columns[cleaningStep]?.strategy)?.label}
+                <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)' }}>
+                  Step {cleaningStep + 1} of {PIPELINE_STEPS.length}
                 </p>
               </>
             )}

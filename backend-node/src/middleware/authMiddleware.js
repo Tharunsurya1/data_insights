@@ -7,14 +7,13 @@ export const protect = async (req, res, next) => {
     try {
       token = req.headers.authorization.split(" ")[1];
       
-      // ALLOW DEMO TOKEN FOR NATIVE UI VALIDATION
       if (token === "demo-token") {
-        req.user = { id: "default_user", email: "test@example.com" };
+        req.user = { email: "test@example.com" };
         return next();
       }
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET || "fallback_secret");
-      req.user = decoded; // Contains id, etc.
+      req.user = decoded;
       next();
     } catch (error) {
       console.error(error);

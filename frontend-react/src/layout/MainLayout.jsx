@@ -23,7 +23,7 @@ const MainLayout = ({ children }) => {
   }, [location.pathname]); // Re-fetch on navigation to keep sync
 
   const currentDatasetId = location.pathname.split('/').pop();
-  const currentDataset = datasets.find(d => d._id === currentDatasetId);
+  const currentDataset = datasets.find(d => d.dataset_id === currentDatasetId || d._id === currentDatasetId);
 
   return (
     <div className="layout-wrapper" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
