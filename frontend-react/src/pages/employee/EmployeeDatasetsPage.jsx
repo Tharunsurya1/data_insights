@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, FileText, Eye, ChevronDown, ChevronUp, RefreshCw, BarChart3, Trash2, AlertTriangle, X } from 'lucide-react';
+import { Search, FileText, Eye, ChevronDown, ChevronUp, RefreshCw, BarChart3, Trash2, AlertTriangle, X, Sparkles } from 'lucide-react';
 import axios from 'axios';
 import { getDatasets, deleteDataset } from '../../services/api';
 import EmployeeLayout from '../../layout/EmployeeLayout';
@@ -13,6 +13,7 @@ const MOCK_DATASETS = [
     source: 'acme-prod', path: '/data/crm/customers.xlsx',
     rows: 12450, cols: 24, size: '8.1 MB', version: 'v3',
     updated: '2 days ago',
+    uploadedBy: 'John Admin',
     versions: [
       { tag: 'v3', desc: 'Cleaned · 12,450 rows', date: 'Jan 18 2025', current: true },
       { tag: 'v2', desc: 'Cleaned · 12,800 rows', date: 'Dec 4 2024' },
@@ -24,6 +25,7 @@ const MOCK_DATASETS = [
     source: 'acme-prod', path: '/data/sales/q3_2024.csv',
     rows: 4521, cols: 12, size: '2.4 MB', version: 'v1',
     updated: '12 min ago', cleaningProgress: 40, cleaningStep: '2/5 — Removing duplicates',
+    uploadedBy: 'Sarah Manager',
     versions: [
       { tag: 'v1', desc: 'Cleaning in progress…', date: 'Jan 20 2025', active: true },
     ]
@@ -32,7 +34,8 @@ const MOCK_DATASETS = [
     id: 'ds-003', name: 'Finance_Q2_2024', type: 'xlsx', status: 'new',
     source: 'acme-prod', path: '/data/finance/q2_2024.xlsx',
     rows: 3200, cols: 9, size: '1.8 MB', version: 'v1',
-    updated: '5 days ago', versions: []
+    updated: '5 days ago', versions: [],
+    uploadedBy: 'John Admin',
   },
 ];
 
@@ -73,6 +76,8 @@ const EmployeeDatasetsPage = () => {
             version: 'v1',
             updated: d.created_at ? new Date(d.created_at).toLocaleDateString() : 'recent',
             versions: [],
+            uploadedBy: d.uploaded_by_name || d.uploaded_by_email || 'Admin',
+            uploadedByEmail: d.uploaded_by_email,
           }));
           setDatasets(mapped);
         } else {
@@ -270,7 +275,12 @@ const EmployeeDatasetsPage = () => {
                       <div>
                         <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>{ds.name}</div>
                         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                          {ds.type.toUpperCase()} · {ds.source} · {ds.version}
+                          {ds.type.toUpperCase()} · {ds.version}
+                          {ds.uploadedBy && (
+                            <span style={{ marginLeft: 8, color: 'var(--primary)' }}>
+                              • Uploaded by <strong>{ds.uploadedBy}</strong>
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -309,16 +319,22 @@ const EmployeeDatasetsPage = () => {
                       onClick={(e) => { e.stopPropagation(); openPreview(ds); }}>
                       <Eye size={12} /> Preview
                     </button>
-                    {ds.status === 'ready' && (
-                      <button className="emp-btn emp-btn-primary emp-btn-sm"
-                        onClick={(e) => { 
-                          e.stopPropagation(); 
-                          const dsId = ds.dataset_id || ds.id;
-                          navigate(`/employee/visualization?ds=${dsId}&name=${encodeURIComponent(ds.name)}`);
-                        }}>
-                        <BarChart3 size={12} /> Visualize
-                      </button>
-                    )}
+                    <button className="emp-btn emp-btn-ghost emp-btn-sm"
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        const dsId = ds.dataset_id || ds.id;
+                        navigate(`/employee/visualization?ds=${dsId}&name=${encodeURIComponent(ds.name)}`);
+                      }}>
+                      <BarChart3 size={12} /> Visualize
+                    </button>
+                    <button className="emp-btn emp-btn-primary emp-btn-sm"
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        const dsId = ds.dataset_id || ds.id;
+                        navigate(`/employee/cleaning?ds=${dsId}&name=${encodeURIComponent(ds.name)}`);
+                      }}>
+                      <Sparkles size={12} /> Clean
+                    </button>
                   </div>
                   <button 
                     className="emp-btn emp-btn-ghost emp-btn-sm"

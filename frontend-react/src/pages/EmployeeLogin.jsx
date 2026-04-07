@@ -3,10 +3,10 @@ import { useNavigate, Link } from "react-router-dom";
 import axios from "axios";
 import "../styles/Auth.css";
 
-const ShieldIcon = () => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="roucd nd" strokeLinejoin="round">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-        <path d="M9 12l2 2 4-4" />
+const UserIcon = () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
     </svg>
 );
 
@@ -60,6 +60,14 @@ const ChartIcon = () => (
     </svg>
 );
 
+const DatabaseIcon = () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <ellipse cx="12" cy="5" rx="9" ry="3" />
+        <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+    </svg>
+);
+
 const CheckCircleIcon = () => (
     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
@@ -67,13 +75,14 @@ const CheckCircleIcon = () => (
     </svg>
 );
 
-export default function AdminLogin() {
+export default function EmployeeLogin() {
     const nav = useNavigate();
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
+    const [infoMessage, setInfoMessage] = useState("");
     const [loginSuccess, setLoginSuccess] = useState(false);
     const [userData, setUserData] = useState(null);
 
@@ -87,30 +96,37 @@ export default function AdminLogin() {
         try {
             const res = await axios.post("http://localhost:5000/api/auth/login", {
                 email,
-                password,
-                role: "admin"
+                password
             });
 
-            if (res.data.role !== "admin") {
-                setError("This account is not authorized for admin access");
+            if (res.data.pending) {
+                setError("Your account is pending approval. Please contact your administrator to activate your account.");
                 setLoading(false);
                 return;
             }
 
+            const role = res.data.role;
+            const name = res.data.name || email.split('@')[0];
+
             localStorage.setItem("token", res.data.token);
-            localStorage.setItem("role", res.data.role);
-            localStorage.setItem("userName", res.data.name || email.split('@')[0]);
+            localStorage.setItem("role", role);
+            localStorage.setItem("userName", name);
             localStorage.setItem("userEmail", res.data.email);
-            
+
             setUserData({
-                name: res.data.name || email.split('@')[0],
+                name: name,
                 email: res.data.email,
-                role: res.data.role
+                role: role
             });
             setLoginSuccess(true);
             setLoading(false);
         } catch (err) {
-            setError(err.response?.data?.message || "Invalid credentials. Please try again.");
+            const msg = err.response?.data?.message || "Invalid credentials. Please try again.";
+            if (err.response?.data?.pending) {
+                setError("Your account is pending approval. Please contact your administrator to activate your account.");
+            } else {
+                setError(msg);
+            }
             setLoading(false);
         }
     };
@@ -126,19 +142,15 @@ export default function AdminLogin() {
             <div className="orb-3" />
 
             <div className="auth-card">
-                <Link to="/" className="auth-back-link">
-                    <ArrowLeftIcon /> Back to role selection
-                </Link>
-
                 <div className="auth-brand">
-                    <div className="brand-icon" style={{ background: 'linear-gradient(135deg, #b63d3d 0%, #f85149 100%)' }}>
-                        <ChartIcon />
+                    <div className="brand-icon" style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%)' }}>
+                        <DatabaseIcon />
                     </div>
-                    <h1>Admin Login</h1>
-                    <p className="auth-subtitle">Sign in to manage your organization</p>
-                    <div className="auth-role-badge admin">
-                        <ShieldIcon />
-                        Admin Access
+                    <h1>Employee Login</h1>
+                    <p className="auth-subtitle">Access your datasets and insights</p>
+                    <div className="auth-role-badge user">
+                        <UserIcon />
+                        Employee Access
                     </div>
                 </div>
 
@@ -150,11 +162,18 @@ export default function AdminLogin() {
                         </div>
                     )}
 
+                    {infoMessage && (
+                        <div className="auth-error" style={{ background: 'rgba(88, 166, 255, 0.15)', borderColor: 'var(--primary)', color: 'var(--primary)' }}>
+                            <AlertIcon />
+                            {infoMessage}
+                        </div>
+                    )}
+
                     <div className="auth-field">
                         <MailIcon />
                         <input
                             type="email"
-                            placeholder="admin@example.com"
+                            placeholder="you@example.com"
                             value={email}
                             onChange={e => setEmail(e.target.value)}
                             autoComplete="email"
@@ -180,21 +199,21 @@ export default function AdminLogin() {
                     </div>
 
                     <button
-                        className="auth-btn admin"
+                        className="auth-btn primary"
                         onClick={login}
                         disabled={loading}
                     >
                         {loading ? (
                             <span className="btn-spinner" />
                         ) : (
-                            "Sign In as Admin"
+                            "Sign In"
                         )}
                     </button>
                 </div>
 
                 <div className="auth-footer">
-                    Need an admin account?{" "}
-                    <Link to="/signup/admin">Create one</Link>
+                    Don&apos;t have an account?{" "}
+                    <Link to="/signup/employee">Create one</Link>
                 </div>
             </div>
 
@@ -203,7 +222,7 @@ export default function AdminLogin() {
                     <div style={{ textAlign: 'center', padding: '20px 0' }}>
                         <div style={{ 
                             width: 60, height: 60, borderRadius: '50%', 
-                            background: 'linear-gradient(135deg, #f85149 0%, #da3633 100%)',
+                            background: 'linear-gradient(135deg, #3fb950 0%, #2ea043 100%)',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             margin: '0 auto 16px'
                         }}>
@@ -227,16 +246,27 @@ export default function AdminLogin() {
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                                 <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Role</span>
-                                <span style={{ color: '#f85149', fontSize: 12, textTransform: 'capitalize' }}>{userData.role}</span>
+                                <span style={{ 
+                                    color: userData.role === 'admin' ? '#f85149' : '#58a6ff', 
+                                    fontSize: 12, textTransform: 'capitalize' 
+                                }}>
+                                    {userData.role}
+                                </span>
                             </div>
                         </div>
 
                         <button
-                            className="auth-btn admin"
-                            onClick={() => nav("/admin")}
+                            className="auth-btn primary"
+                            onClick={() => {
+                                if (userData.role === "admin") {
+                                    nav("/admin");
+                                } else {
+                                    nav("/employee/datasets");
+                                }
+                            }}
                             style={{ width: '100%' }}
                         >
-                            Continue to Admin Portal
+                            Continue to {userData.role === 'admin' ? 'Admin Portal' : 'Datasets'}
                         </button>
                     </div>
                 </div>

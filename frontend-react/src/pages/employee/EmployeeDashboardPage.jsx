@@ -127,9 +127,6 @@ const EmployeeDashboardPage = () => {
           <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={loadDashboard}>
             <RefreshCw size={12} /> Refresh
           </button>
-          <button className="emp-btn emp-btn-primary emp-btn-sm" onClick={() => navigate('/employee/upload')}>
-            <Upload size={12} /> Upload New Dataset
-          </button>
         </div>
       </div>
 
@@ -425,16 +422,23 @@ const EmployeeDashboardPage = () => {
                           }) : '—'}
                         </td>
                         <td style={tdStyle}>
-                          {isReady ? (
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            {isReady ? (
+                              <button className="emp-btn emp-btn-ghost emp-btn-sm" style={{ fontSize: 9, padding: '4px 10px' }}
+                                onClick={() => navigate(`/employee/visualization?ds=${dsId}&name=${encodeURIComponent(dsName)}`)}>
+                                <BarChart3 size={10} /> View
+                              </button>
+                            ) : (
+                              <button className="emp-btn emp-btn-primary emp-btn-sm" style={{ fontSize: 9, padding: '4px 10px' }}
+                                onClick={() => navigate(`/employee/cleaning?ds=${dsId}&name=${encodeURIComponent(dsName)}`)}>
+                                <Sparkles size={10} /> Clean
+                              </button>
+                            )}
                             <button className="emp-btn emp-btn-ghost emp-btn-sm" style={{ fontSize: 9, padding: '4px 10px' }}
-                              onClick={() => navigate(`/employee/visualization?ds=${dsId}&name=${encodeURIComponent(dsName)}`)}>
-                              <BarChart3 size={10} /> View
+                              onClick={() => navigate(`/employee/cleaning?ds=${dsId}&name=${encodeURIComponent(dsName)}`)}>
+                              <Sparkles size={10} /> Clean
                             </button>
-                          ) : (
-                            <span style={{ fontSize: 10, color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                              {ds.status === 'processing' ? 'Processing...' : '—'}
-                            </span>
-                          )}
+                          </div>
                         </td>
                       </tr>
                     );

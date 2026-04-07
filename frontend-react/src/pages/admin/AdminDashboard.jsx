@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { Users, Database, Zap, AlertCircle, TrendingUp, ArrowUpRight, RefreshCw, Loader } from 'lucide-react';
+import { Users, Database, Zap, AlertCircle, TrendingUp, ArrowUpRight, RefreshCw, Loader, BarChart3, Sparkles } from 'lucide-react';
 import AdminLayout from '../../layout/AdminLayout';
 import { getUsers, getDatasets, getUserStats } from '../../services/api';
 
@@ -318,7 +318,7 @@ export default function AdminDashboard() {
             ) : (
               <table>
                 <thead>
-                  <tr><th>Dataset</th><th>Uploaded By</th><th>Status</th><th>Size</th></tr>
+                  <tr><th>Dataset</th><th>Uploaded By</th><th>Status</th><th>Size</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                   {recentDatasets.map((ds, i) => (
@@ -335,6 +335,19 @@ export default function AdminDashboard() {
                       </td>
                       <td>{getStatusBadge(ds.status)}</td>
                       <td style={{ fontFamily: "'DM Mono', monospace", fontSize: '11px', color: 'var(--text-muted)' }}>{ds.size}</td>
+                      <td>
+                        {ds.status === 'completed' || ds.status === 'ready' ? (
+                          <button className="admin-btn admin-btn-ghost admin-btn-sm" style={{ fontSize: 10, padding: '4px 8px' }}
+                            onClick={() => navigate(`/employee/visualization?ds=${ds.id}&name=${encodeURIComponent(ds.name)}`)}>
+                            <BarChart3 size={10} /> View
+                          </button>
+                        ) : (
+                          <button className="admin-btn admin-btn-primary admin-btn-sm" style={{ fontSize: 10, padding: '4px 8px' }}
+                            onClick={() => navigate(`/employee/cleaning?ds=${ds.id}&name=${encodeURIComponent(ds.name)}`)}>
+                            <Sparkles size={10} /> Clean
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

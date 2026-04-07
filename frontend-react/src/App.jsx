@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import SelectRole from "./pages/SelectRole";
-import Login from "./pages/Login";
-import AdminLogin from "./pages/AdminLogin";
+import Auth from "./pages/Auth";
+import EmployeeLogin from "./pages/EmployeeLogin";
 import Signup from "./pages/Signup";
 import MainLayout from './layout/MainLayout';
 import AdminLayout from './layout/AdminLayout';
@@ -31,10 +30,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Auth / Role Selection */}
-        <Route path="/" element={<SelectRole />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/admin-login" element={<AdminLogin />} />
+        {/* Auth - Unified Login */}
+        <Route path="/" element={<Auth />} />
+        <Route path="/employee-login" element={<EmployeeLogin />} />
         <Route path="/signup/:role" element={<Signup />} />
 
         {/* Protected Admin Pipeline */}
@@ -51,7 +49,7 @@ export default function App() {
         <Route path="/visualization/:datasetId" element={<ProtectedRoute><MainLayout><VisualizationPage /></MainLayout></ProtectedRoute>} />
 
         {/* Employee Section (pages have their own layouts) */}
-        <Route path="/employee" element={<Navigate to="/employee/dashboard" replace />} />
+        <Route path="/employee" element={<Navigate to="/employee/datasets" replace />} />
         <Route path="/employee/upload" element={<ProtectedRoute><UploadPage /></ProtectedRoute>} />
         <Route path="/employee/datasets" element={<ProtectedRoute><EmployeeDatasetsPage /></ProtectedRoute>} />
         <Route path="/employee/analysis" element={<ProtectedRoute><DatasetAnalysisPage /></ProtectedRoute>} />

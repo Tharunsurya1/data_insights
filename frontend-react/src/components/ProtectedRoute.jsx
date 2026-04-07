@@ -11,11 +11,11 @@ export default function ProtectedRoute({ children, allowedRoles = [] }) {
 
     // If allowedRoles specified, check role matches
     if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
-        // Redirect to appropriate dashboard based on role
+        // Redirect based on role - datasets page only
         if (role === 'admin') {
             return <Navigate to="/admin" replace />;
         } else {
-            return <Navigate to="/employee/dashboard" replace />;
+            return <Navigate to="/employee/datasets" replace />;
         }
     }
 

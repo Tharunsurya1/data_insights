@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { Database, Sparkles, LayoutDashboard, MessageSquare, FileText, LogOut, Upload, BarChart3 } from 'lucide-react';
+import { Database, Sparkles, LayoutDashboard, MessageSquare, FileText, LogOut, Upload, BarChart3, Activity } from 'lucide-react';
 import { getMe } from '../services/api';
 import '../styles/Employee.css';
 
 const navItems = [
-  { path: '/employee/upload', label: 'Upload', icon: Upload },
-  { path: '/employee/datasets', label: 'Datasets', icon: Database },
-  { path: '/employee/analysis', label: 'Analysis', icon: Sparkles },
-  { path: '/employee/visualization', label: 'Visualization', icon: BarChart3 },
   { path: '/employee/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/employee/datasets', label: 'Datasets', icon: Database },
+  { path: '/employee/cleaning', label: 'Clean', icon: Sparkles },
+  { path: '/employee/visualization', label: 'Visualize', icon: BarChart3 },
   { path: '/employee/chat', label: 'Chatbot', icon: MessageSquare },
   { path: '/employee/summary', label: 'Summary', icon: FileText },
 ];
@@ -24,12 +23,9 @@ const EmployeeLayout = ({ children }) => {
     getMe().then(user => {
       if (user) {
         setUserName(user.name);
-        if (user.role === 'admin') {
-          navigate('/admin');
-        }
       }
     });
-  }, [navigate]);
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem('token');

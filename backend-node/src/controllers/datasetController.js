@@ -16,9 +16,11 @@ export const getAllDatasets = async (req, res) => {
     
     const companyId = userResult.rows[0].company_id;
     const result = await pool.query(
-      `SELECT d.*, dv.version_id, dv.is_cleaned, dv.created_at as version_created
+      `SELECT d.*, dv.version_id, dv.is_cleaned, dv.created_at as version_created,
+              u.name as uploaded_by_name, u.email as uploaded_by_email
        FROM datasets d
        LEFT JOIN dataset_versions dv ON d.dataset_id = dv.dataset_id
+       LEFT JOIN users u ON d.uploaded_by = u.user_id
        WHERE d.company_id = $1
        ORDER BY d.created_at DESC`,
       [companyId]

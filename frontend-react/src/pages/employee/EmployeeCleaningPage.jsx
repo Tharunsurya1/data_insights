@@ -1,546 +1,830 @@
-import { useState, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, Play, SkipForward, Sparkles, Zap, X, BarChart3 } from 'lucide-react';
-import EmployeeLayout from '../../layout/EmployeeLayout';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import './EmployeeCleaningPage.css';
+
+const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 const STEPS = [
-  { id: 1, name: 'Null Values', desc: 'Fill missing values per column' },
-  { id: 2, name: 'Duplicates', desc: 'Identify and handle duplicate rows' },
-  { id: 3, name: 'Data Types', desc: 'Coerce columns to correct types' },
-  { id: 4, name: 'Whitespace', desc: 'Trim whitespace and fix casing' },
-  { id: 5, name: 'Outliers', desc: 'Handle statistical outliers' },
+  { id: 1, name: 'Null Values', shortName: 'Null Values' },
+  { id: 2, name: 'Duplicates', shortName: 'Duplicates' },
+  { id: 3, name: 'Data Types', shortName: 'Data Types' },
+  { id: 4, name: 'Outliers', shortName: 'Outliers' },
+  { id: 5, name: 'Feature Eng.', shortName: 'Feature Eng.' },
 ];
 
-const REGIONS = ['North', 'South', 'East', 'West', 'Central'];
-const REPS = ['Arjun Sharma', 'Priya Mehta', 'Rohan Kumar', 'Neha Kapoor', 'Vikram Rao'];
-const PRODUCTS = ['Pro Plan', 'Starter', 'Enterprise', 'Basic', 'Team'];
-const CHANNELS = ['Direct', 'Online', 'Partner', 'Referral'];
-const STATUSES = ['Won', 'Lost', 'Pending'];
+const NULL_STRATEGIES = ['Keep as-is', 'Fill with 0', 'Fill with mean', 'Fill with median', 'Fill with mode', 'Drop rows'];
+const DUPE_STRATEGIES = [
+  { id: 'Keep first', label: 'Keep First Occurrence', desc: 'Remove all but first duplicate row' },
+  { id: 'Keep last', label: 'Keep Last Occurrence', desc: 'Remove all but last duplicate row' },
+  { id: 'Keep as-is', label: 'Ignore', desc: 'Keep all rows as-is' }
+];
 
-const generateRow = (i, step) => {
-  const isNull = step < 2 && (i === 3 || i === 7 || i === 12);
-  const isDupe = step < 2 && (i === 5 || i === 6);
-  const isWhitespace = step < 4 && i === 9;
-  const rev = (Math.random() * 80000 + 5000).toFixed(0);
-  return {
-    id: i,
-    sale_id: `S-${String(i).padStart(4, '0')}`,
-    sale_date: `2024-${String(Math.floor(i / 400) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`,
-    region: isNull && (i === 3) ? null : REGIONS[i % 5],
-    revenue: `₹${rev}`,
-    rep_name: isWhitespace ? ` ${REPS[i % 5]}` : REPS[i % 5],
-    product: PRODUCTS[i % 5],
-    quantity: Math.floor(Math.random() * 50 + 1),
-    discount: isNull && i === 7 ? null : `${(Math.random() * 30).toFixed(1)}%`,
-    customer_id: `CUST-${String(1000 + i).padStart(5, '0')}`,
-    channel: CHANNELS[i % 4],
-    status: STATUSES[i % 3],
-    isNull, isDupe, isWhitespace,
-  };
-};
+const TYPE_STRATEGIES = ['Auto-detect', 'String', 'Integer', 'Float', 'Date', 'Boolean'];
+const OUTLIER_STRATEGIES = ['Keep as-is', 'Remove rows', 'IQR capping', 'Z-score capping'];
 
 const EmployeeCleaningPage = () => {
   const navigate = useNavigate();
-  const [currentStep, setCurrentStep] = useState(2);
+  const [searchParams] = useSearchParams();
+  const dsId = searchParams.get('ds');
+  const dsName = searchParams.get('name') || 'Dataset';
+
+  const [currentStep, setCurrentStep] = useState(1);
   const [verifyOpen, setVerifyOpen] = useState(false);
-  const [leftWidth, setLeftWidth] = useState(70);
-  const [colFilter, setColFilter] = useState('all');
-  const dragging = useRef(false);
-  const wrapRef = useRef(null);
+  const [showFullCleaned, setShowFullCleaned] = useState(false);
+  const [loading, setLoading] = useState(true);
+  
+  const [tableRows, setTableRows] = useState([]);
+  const [cleanedRows, setCleanedRows] = useState([]);
+  const [tableHeaders, setTableHeaders] = useState([]);
+  
+  const [settings, setSettings] = useState({
+    1: {}, 2: { strategy: 'Keep first' }, 3: {}, 4: {}, 5: {}
+  });
 
-  const tableData = Array.from({ length: 80 }, (_, i) => generateRow(i + 1, currentStep));
+  const [leftWidth, setLeftWidth] = useState(68);
+  const [dragging, setDragging] = useState(false);
 
-  const handleMouseDown = useCallback(() => {
-    dragging.current = true;
-    const handleMove = (e) => {
-      if (!dragging.current || !wrapRef.current) return;
-      const rect = wrapRef.current.getBoundingClientRect();
-      const pct = Math.min(85, Math.max(25, ((e.clientX - rect.left) / rect.width) * 100));
+  const [featStreaming, setFeatStreaming] = useState(false);
+  const [featDone, setFeatDone] = useState(false);
+  const [featStreamText, setFeatStreamText] = useState('');
+  const STREAM_LINES = [
+    '> Connecting to Ollama (llama3.2)...',
+    '> Analyzing schema...',
+    '> Detecting column relationships...',
+    '> Computing value distributions...',
+    '> Generating feature suggestions...'
+  ];
+  const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [featStatuses, setFeatStatuses] = useState({});
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!dsId) { setLoading(false); return; }
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/cleaned-data/${dsId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const data = await res.json();
+        if (data.success && data.rows?.length > 0) {
+          setTableRows(data.rows);
+          setCleanedRows(data.rows);
+          setTableHeaders(data.headers || Object.keys(data.rows[0]));
+        }
+      } catch (err) {
+        console.warn('Fetch error:', err);
+      }
+      setLoading(false);
+    };
+    fetchData();
+  }, [dsId]);
+
+  // Handle Drag Resizing
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!dragging) return;
+      const pct = Math.min(85, Math.max(25, (e.clientX / window.innerWidth) * 100));
       setLeftWidth(pct);
     };
-    const handleUp = () => { dragging.current = false; document.removeEventListener('mousemove', handleMove); document.removeEventListener('mouseup', handleUp); };
-    document.addEventListener('mousemove', handleMove);
-    document.addEventListener('mouseup', handleUp);
-  }, []);
+    const handleMouseUp = () => setDragging(false);
+    if (dragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [dragging]);
 
-  const visibleCols = colFilter === 'highlighted'
-    ? ['#', 'sale_date', 'region', 'rep_name']
-    : ['#', 'sale_id', 'sale_date', 'region', 'revenue', 'rep_name', 'product', 'quantity', 'discount', 'customer_id', 'channel', 'status'];
+  // Process data based on settings
+  useEffect(() => {
+    let data = [...tableRows];
 
-  const highlightedCols = ['sale_date', 'region', 'rep_name'];
+    // STEP 1: Null Values
+    const s1 = settings[1] || {};
+    const colStats = {};
+    tableHeaders.forEach(col => {
+      const numericVals = tableRows.map(r => parseFloat(r[col])).filter(v => !isNaN(v));
+      if (numericVals.length > 0) {
+        const sorted = [...numericVals].sort((a, b) => a - b);
+        const sum = numericVals.reduce((a, b) => a + b, 0);
+        colStats[col] = {
+          mean: sum / numericVals.length,
+          median: numericVals.length % 2 === 0 
+            ? (sorted[numericVals.length / 2 - 1] + sorted[numericVals.length / 2]) / 2 
+            : sorted[Math.floor(numericVals.length / 2)],
+        };
+      }
+      const textVals = tableRows.map(r => r[col])?.filter(v => v != null && v !== '');
+      if (textVals?.length > 0) {
+        const freq = {};
+        textVals.forEach(v => { freq[v] = (freq[v] || 0) + 1; });
+        const mode = Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0];
+        colStats[col] = { ...colStats[col], mode };
+      }
+    });
 
-  const renderStepContent = () => {
-    switch (currentStep) {
-      case 1:
-        return (
-          <>
-            <div style={statRowStyle}>
-              <div style={statMiniStyle}><div style={{ ...statValStyle, color: 'var(--danger)' }}>14</div><div style={statLblStyle}>Nulls Found</div></div>
-              <div style={statMiniStyle}><div style={{ ...statValStyle, color: 'var(--success)' }}>14</div><div style={statLblStyle}>Filled</div></div>
-              <div style={statMiniStyle}><div style={statValStyle}>0</div><div style={statLblStyle}>Remaining</div></div>
-            </div>
-            <div style={stepCardStyle}>
-              <div style={stepCardTitleStyle}>Column Strategies <span style={{ float: 'right', color: 'var(--success)' }}>✓ Applied</span></div>
-              {[
-                { col: 'revenue', nulls: '3 nulls', strategy: 'mean' },
-                { col: 'discount', nulls: '8 nulls', strategy: '0 (custom)' },
-                { col: 'region', nulls: '3 nulls', warn: true, strategy: 'mode' },
-              ].map(item => (
-                <div key={item.col} style={colRowStyle}>
-                  <div style={colNameStyle}>{item.col}</div>
-                  <div style={{ ...colStatStyle, color: item.warn ? 'var(--warning)' : 'var(--text-muted)' }}>{item.nulls}</div>
-                  <select className="admin-filter-select" style={{ minWidth: 110, fontSize: 10 }}>
-                    <option>{item.strategy}</option>
-                  </select>
-                </div>
-              ))}
-            </div>
-          </>
-        );
-      case 2:
-        return (
-          <>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
-              background: 'rgba(210,153,34,0.06)', border: '1px solid rgba(210,153,34,0.15)',
-              borderRadius: 10, marginBottom: 12,
-            }}>
-              <div style={{ width: 16, height: 16, border: '2px solid rgba(210,153,34,0.2)', borderTopColor: 'var(--warning)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--warning)' }}>Scanning for duplicates… 2,140 / 4,521 rows checked</div>
-            </div>
-            <div style={statRowStyle}>
-              <div style={statMiniStyle}><div style={{ ...statValStyle, color: 'var(--warning)' }}>7</div><div style={statLblStyle}>Dupes Found</div></div>
-              <div style={statMiniStyle}><div style={statValStyle}>4,514</div><div style={statLblStyle}>Unique Rows</div></div>
-              <div style={statMiniStyle}><div style={statValStyle}>0.15%</div><div style={statLblStyle}>Dupe Rate</div></div>
-            </div>
-            <div style={stepCardStyle}>
-              <div style={stepCardTitleStyle}>Duplicate Strategy</div>
-              {[
-                { label: 'Keep First Occurrence', sub: 'Remove all but first duplicate row', checked: true, ai: true },
-                { label: 'Keep Last Occurrence', sub: 'Remove all but last duplicate row', checked: false },
-                { label: 'Ignore', sub: 'Keep all rows as-is', checked: false },
-              ].map((opt, i) => (
-                <label key={i} style={{
-                  display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer',
-                  padding: '8px 10px', borderRadius: 8,
-                  border: `1px solid ${opt.checked ? 'var(--primary)' : 'var(--border-color)'}`,
-                  background: opt.checked ? 'rgba(88,166,255,0.08)' : 'transparent',
-                  marginBottom: 8,
-                }}>
-                  <input type="radio" name="dupstrat" defaultChecked={opt.checked} style={{ accentColor: 'var(--primary)' }} />
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: '#fff' }}>{opt.label}</div>
-                    <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>{opt.sub}</div>
-                  </div>
-                  {opt.ai && <span style={{
-                    marginLeft: 'auto', fontFamily: "'DM Mono', monospace", fontSize: 9,
-                    background: 'rgba(188,140,255,0.1)', color: 'var(--accent)',
-                    padding: '2px 6px', borderRadius: 5,
-                  }}>✦ AI suggest</span>}
-                </label>
-              ))}
-            </div>
-            <div style={{ ...stepCardStyle, borderColor: 'rgba(210,153,34,0.2)' }}>
-              <div style={{ ...stepCardTitleStyle, color: 'var(--warning)' }}>Detected Duplicate Rows</div>
-              <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.8 }}>
-                Row 142 = Row 143 <span style={{ color: 'var(--warning)' }}>exact match</span><br />
-                Row 891 = Row 1204 <span style={{ color: 'var(--warning)' }}>exact match</span><br />
-                Row 2041 = Row 2042 <span style={{ color: 'var(--warning)' }}>exact match</span><br />
-                <span style={{ color: 'var(--text-muted)' }}>+ 4 more scanning…</span>
-              </div>
-            </div>
-          </>
-        );
-      case 3:
-        return (
-          <div style={stepCardStyle}>
-            <div style={stepCardTitleStyle}>Type Issues Found</div>
-            {[
-              { col: 'sale_date', from: 'object', to: '→ datetime', options: ['datetime', 'string'] },
-              { col: 'quantity', from: 'float64', to: '→ int', options: ['integer', 'float'] },
-              { col: 'customer_id', from: 'int64', to: '→ string', options: ['string', 'integer'] },
-            ].map(item => (
-              <div key={item.col} style={colRowStyle}>
-                <div>
-                  <div style={colNameStyle}>{item.col}</div>
-                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)' }}>Detected as: {item.from}</div>
-                </div>
-                <span style={{
-                  fontFamily: "'DM Mono', monospace", fontSize: 9,
-                  background: 'rgba(188,140,255,0.1)', color: 'var(--accent)',
-                  padding: '2px 6px', borderRadius: 5,
-                }}>{item.to}</span>
-                <select className="admin-filter-select" style={{ minWidth: 100, fontSize: 10 }}>
-                  {item.options.map(o => <option key={o}>{o}</option>)}
-                </select>
-              </div>
-            ))}
-          </div>
-        );
-      case 4:
-        return (
-          <>
-            <div style={statRowStyle}>
-              <div style={statMiniStyle}><div style={{ ...statValStyle, color: 'var(--warning)' }}>3</div><div style={statLblStyle}>Cols Affected</div></div>
-              <div style={statMiniStyle}><div style={statValStyle}>23</div><div style={statLblStyle}>Rows Affected</div></div>
-            </div>
-            <div style={stepCardStyle}>
-              <div style={stepCardTitleStyle}>Whitespace Issues</div>
-              {[
-                { col: 'rep_name', rows: '12 rows' },
-                { col: 'region', rows: '8 rows' },
-                { col: 'product', rows: '3 rows' },
-              ].map(item => (
-                <div key={item.col} style={colRowStyle}>
-                  <div style={colNameStyle}>{item.col}</div>
-                  <div style={{ ...colStatStyle, color: 'var(--warning)' }}>{item.rows}</div>
-                  <select className="admin-filter-select" style={{ minWidth: 100, fontSize: 10 }}>
-                    <option>Trim & Fix</option><option>Ignore</option>
-                  </select>
-                </div>
-              ))}
-            </div>
-            <div style={stepCardStyle}>
-              <div style={stepCardTitleStyle}>Casing</div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {['Keep as-is', 'Title Case', 'lowercase'].map((opt, i) => (
-                  <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
-                    <input type="radio" name="case" defaultChecked={i === 0} style={{ accentColor: 'var(--primary)' }} /> {opt}
-                  </label>
-                ))}
-              </div>
-            </div>
-          </>
-        );
-      case 5:
-        return (
-          <div style={stepCardStyle}>
-            <div style={stepCardTitleStyle}>Outlier Detection (IQR Method)</div>
-            {[
-              { col: 'revenue', detail: '5 outliers · max: ₹4,80,000', options: ['Cap at IQR', 'Remove', 'Ignore'] },
-              { col: 'quantity', detail: '2 outliers · max: 9,999', options: ['Ignore', 'Cap at IQR', 'Remove'] },
-              { col: 'discount', detail: '1 outlier · val: 98%', options: ['Remove', 'Cap at IQR', 'Ignore'] },
-            ].map(item => (
-              <div key={item.col} style={colRowStyle}>
-                <div>
-                  <div style={colNameStyle}>{item.col}</div>
-                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)' }}>{item.detail}</div>
-                </div>
-                <select className="admin-filter-select" style={{ minWidth: 100, fontSize: 10 }}>
-                  {item.options.map(o => <option key={o}>{o}</option>)}
-                </select>
-              </div>
-            ))}
-          </div>
-        );
-      default:
-        return null;
+    data = data.map(row => {
+      let newRow = { ...row };
+      
+      // Remove white spaces automatically regardless of strategy
+      Object.keys(newRow).forEach(col => {
+        if (typeof newRow[col] === 'string') {
+          newRow[col] = newRow[col].trim();
+        }
+      });
+
+      let drop = false;
+      Object.entries(s1).forEach(([col, strategy]) => {
+        if (!strategy || strategy === 'Keep as-is') return;
+        const val = newRow[col];
+        if (val == null || val === '') {
+          if (strategy === 'Fill with 0') newRow[col] = 0;
+          else if (strategy === 'Fill with mean') newRow[col] = colStats[col]?.mean != null ? Math.round(colStats[col].mean * 100) / 100 : 0;
+          else if (strategy === 'Fill with median') newRow[col] = colStats[col]?.median != null ? Math.round(colStats[col].median * 100) / 100 : 0;
+          else if (strategy === 'Fill with mode') newRow[col] = colStats[col]?.mode || 'Unknown';
+          else if (strategy === 'Drop rows') drop = true;
+        }
+      });
+      return drop ? null : newRow;
+    }).filter(Boolean);
+
+    // STEP 2: Duplicates
+    const s2 = settings[2]?.strategy || 'Keep first';
+    if (s2 !== 'Keep as-is') {
+      const seen = new Set();
+      if (s2 === 'Keep first') {
+        data = data.filter(row => {
+          const key = JSON.stringify(row);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      } else if (s2 === 'Keep last') {
+        const newCleaned = [];
+        for (let i = data.length - 1; i >= 0; i--) {
+          const row = data[i];
+          const key = JSON.stringify(row);
+          if (!seen.has(key)) {
+            seen.add(key);
+            newCleaned.unshift(row);
+          }
+        }
+        data = newCleaned;
+      }
+    }
+
+    // STEP 3: Data Types
+    const s3 = settings[3] || {};
+    data = data.map(row => {
+      const newRow = { ...row };
+      Object.entries(s3).forEach(([col, targetType]) => {
+        if (!targetType || targetType === 'Auto-detect') return;
+        const val = newRow[col];
+        if (targetType === 'Integer') {
+          const parsed = parseInt(val, 10);
+          newRow[col] = !isNaN(parsed) ? parsed : 0;
+        } else if (targetType === 'Float') {
+          const parsed = parseFloat(val);
+          newRow[col] = !isNaN(parsed) ? parsed : 0;
+        } else if (targetType === 'String') {
+          newRow[col] = String(val ?? '');
+        } else if (targetType === 'Boolean') {
+          newRow[col] = val && val !== '0' && String(val).toLowerCase() !== 'false' ? true : false;
+        } else if (targetType === 'Date') {
+          const date = new Date(val);
+          newRow[col] = !isNaN(date.getTime()) ? val : '';
+        }
+      });
+      return newRow;
+    });
+
+    // STEP 4: Outliers
+    const s4 = settings[4] || {};
+    const numericCols = tableHeaders.filter(col => {
+      const sampleVals = tableRows.slice(0, 20).map(r => parseFloat(r[col])).filter(v => !isNaN(v));
+      return sampleVals.length > 5;
+    });
+
+    numericCols.forEach(col => {
+      const strategy = s4[col];
+      if (!strategy || strategy === 'Keep as-is') return;
+
+      const vals = data.map(r => parseFloat(r[col])).filter(v => !isNaN(v));
+      if (vals.length === 0) return;
+
+      const sorted = [...vals].sort((a, b) => a - b);
+      const q1 = sorted[Math.floor(vals.length * 0.25)] || 0;
+      const q3 = sorted[Math.floor(vals.length * 0.75)] || 0;
+      const iqr = q3 - q1;
+      const lowerBound = q1 - 1.5 * iqr;
+      const upperBound = q3 + 1.5 * iqr;
+
+      if (strategy === 'Remove rows') {
+        data = data.filter(row => {
+          const val = parseFloat(row[col]);
+          if (!isNaN(val) && (val < lowerBound || val > upperBound)) return false;
+          return true;
+        });
+      } else if (strategy === 'IQR capping') {
+        data = data.map(row => {
+          const newRow = { ...row };
+          const val = parseFloat(row[col]);
+          if (!isNaN(val)) {
+            if (val < lowerBound) newRow[col] = lowerBound;
+            else if (val > upperBound) newRow[col] = upperBound;
+          }
+          return newRow;
+        });
+      }
+    });
+
+    // STEP 5: Feature Extraction
+    const acceptedFeatures = aiSuggestions.filter(s => featStatuses[s.id] === 'accept');
+    if (acceptedFeatures.length > 0) {
+      const meta = {};
+      acceptedFeatures.forEach(feat => {
+        if (feat.type === 'numeric') {
+           const max = Math.max(...data.map(r => parseFloat(r[feat.originalCol])).filter(v => !isNaN(v)));
+           meta[feat.col] = max > 0 ? max : 1;
+        }
+      });
+
+      data = data.map(row => {
+        const newRow = { ...row };
+        acceptedFeatures.forEach(feat => {
+          const val = row[feat.originalCol];
+          if (feat.type === 'numeric') {
+             const v = parseFloat(val);
+             newRow[feat.col] = !isNaN(v) ? Number((v / meta[feat.col]).toFixed(4)) : 0;
+          } else {
+             newRow[feat.col] = (val != null && String(val).trim() !== '') ? 1 : 0;
+          }
+        });
+        return newRow;
+      });
+    }
+
+    setCleanedRows(data);
+  }, [settings, tableRows, tableHeaders, featStatuses, aiSuggestions]);
+
+  const handleNext = () => {
+    if (currentStep < 5) {
+      const nextS = currentStep + 1;
+      setCurrentStep(nextS);
+      if (nextS === 5 && !featDone && !featStreaming) {
+        startFeatStream();
+      }
+    } else {
+      setVerifyOpen(true);
     }
   };
 
+  const startFeatStream = () => {
+    setFeatStreaming(true);
+    setFeatDone(false);
+    setFeatStreamText('');
+    let line = 0, ch = 0, text = '';
+    
+    // Determine dynamic suggestions based on data
+    const suggestions = [];
+    let count = 0;
+    tableHeaders.forEach((col, idx) => {
+      if (count >= 4) return;
+      const isNum = tableRows.slice(0, 20).map(r => parseFloat(r[col])).filter(v => !isNaN(v)).length > 5;
+      if (isNum) {
+        suggestions.push({
+          id: idx,
+          originalCol: col,
+          col: `${col}_normalized`,
+          type: 'numeric',
+          formula: `${col} / max`,
+          desc: `Scales ${col} to 0-1 range based on max value.`
+        });
+        count++;
+      } else if (!isNum && count < 4 && col.length > 2) {
+        suggestions.push({
+          id: idx,
+          originalCol: col,
+          col: `has_${col}`,
+          type: 'boolean',
+          formula: `${col} != null`,
+          desc: `Creates a binary flag representing if ${col} was provided.`
+        });
+        count++;
+      }
+    });
+
+    setAiSuggestions(suggestions);
+    
+    const tick = () => {
+      if (line >= STREAM_LINES.length) {
+        setTimeout(() => {
+          setFeatStreaming(false);
+          setFeatDone(true);
+        }, 500);
+        return;
+      }
+      const L = STREAM_LINES[line];
+      if (ch < L.length) {
+        text += L[ch++];
+        setFeatStreamText(text);
+        setTimeout(tick, 20);
+      } else {
+        text += '\n'; line++; ch = 0;
+        setFeatStreamText(text);
+        setTimeout(tick, 200);
+      }
+    };
+    tick();
+  };
+
+  const getColNulls = () => {
+    const stats = {};
+    tableHeaders.forEach(col => {
+      stats[col] = tableRows.filter(r => r[col] == null || String(r[col]).trim() === '').length;
+    });
+    return stats;
+  };
+  const getNumCols = () => {
+    return tableHeaders.filter(col => {
+      const vals = tableRows.slice(0, 20).map(r => parseFloat(r[col])).filter(v => !isNaN(v));
+      return vals.length > 5;
+    });
+  };
+  const getDupes = () => {
+    const seen = new Set();
+    let dupes = 0;
+    tableRows.forEach(row => {
+      const key = JSON.stringify(row);
+      if (seen.has(key)) dupes++; else seen.add(key);
+    });
+    return dupes;
+  };
+
+  const cNulls = getColNulls();
+  const totNulls = Object.values(cNulls).reduce((a, b) => a + b, 0);
+  const nullCols = tableHeaders.filter(c => cNulls[c] > 0);
+  const totDupes = getDupes();
+  const numCols = getNumCols();
+
+  const handleAiDecide = () => {
+    const newSettings = { ...settings };
+    
+    if (currentStep === 1) {
+      const s1 = {};
+      nullCols.forEach(col => {
+        const isNumeric = tableRows.slice(0, 20).map(r => parseFloat(r[col])).filter(v => !isNaN(v)).length > 5;
+        s1[col] = isNumeric ? 'Fill with median' : 'Fill with mode';
+      });
+      newSettings[1] = {...newSettings[1], ...s1};
+    } else if (currentStep === 2) {
+      newSettings[2] = { strategy: 'Keep first' };
+    } else if (currentStep === 3) {
+      const s3 = {};
+      tableHeaders.forEach(col => {
+        const sampleVals = tableRows.slice(0, 20).map(r => r[col]).filter(v => v != null && String(v).trim() !== '');
+        if (sampleVals.length === 0) {
+          s3[col] = 'String';
+        } else {
+          const isBool = sampleVals.every(v => ['true', 'false', '0', '1'].includes(String(v).toLowerCase()));
+          if (isBool) { s3[col] = 'Boolean'; }
+          else {
+            const numVals = sampleVals.map(v => parseFloat(v)).filter(v => !isNaN(v));
+            if (numVals.length === sampleVals.length) {
+              const isInt = sampleVals.every(v => Number.isInteger(parseFloat(v)));
+              s3[col] = isInt ? 'Integer' : 'Float';
+            } else {
+              const dateVals = sampleVals.filter(v => !isNaN(new Date(v).getTime()) && isNaN(v));
+              if (dateVals.length === sampleVals.length) s3[col] = 'Date';
+              else s3[col] = 'String';
+            }
+          }
+        }
+      });
+      newSettings[3] = {...newSettings[3], ...s3};
+    } else if (currentStep === 4) {
+      const s4 = {};
+      numCols.forEach(col => s4[col] = 'IQR capping');
+      newSettings[4] = {...newSettings[4], ...s4};
+    }
+    
+    setSettings(newSettings);
+  };
+
+  const activeData = cleanedRows.length > 0 ? cleanedRows : tableRows;
+  
+  const acceptedFeatObj = aiSuggestions.filter(s => featStatuses[s.id] === 'accept');
+  const showHeaders = [...(tableHeaders.length > 0 ? tableHeaders.slice(0, 12) : []), ...acceptedFeatObj.map(f => f.col)];
+
+  const getBadge = () => {
+    switch (currentStep) {
+      case 1: return { cls: 'clean-null-badge', txt: '● Nulls highlighted' };
+      case 2: return { cls: 'clean-dupe-badge', txt: '● Dupes highlighted' };
+      case 3: return { cls: 'clean-type-badge', txt: '● Type fixes highlighted' };
+      case 4: return { cls: 'clean-outlier-badge', txt: '● Outliers highlighted' };
+      case 5: return { cls: 'clean-feat-badge', txt: '✦ New features highlighted' };
+      default: return { cls: '', txt: '' };
+    }
+  };
+
+  const handleDownload = () => {
+    if (activeData.length === 0) return;
+    const acceptedFeatObj = aiSuggestions.filter(s => featStatuses[s.id] === 'accept');
+    const fullHeaders = [...tableHeaders, ...acceptedFeatObj.map(f => f.col)];
+    
+    const headerRow = fullHeaders.map(h => `"${h.replace(/"/g, '""')}"`).join(',');
+    const rows = activeData.map(row => 
+      fullHeaders.map(col => {
+        const cell = row[col];
+        if (cell == null || String(cell).trim() === '') return '""';
+        return `"${String(cell).replace(/"/g, '""')}"`;
+      }).join(',')
+    ).join('\n');
+    
+    const csvContent = `${headerRow}\n${rows}`;
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${dsName.replace(/\s+/g, '_')}_cleaned.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
-    <EmployeeLayout>
+    <div className="clean-root">
       {/* Top Nav */}
-      <div className="emp-topbar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={() => navigate('/employee/datasets')}>
-            <ArrowLeft size={14} /> Back
-          </button>
-          <div>
-            <div className="emp-topbar-title">Q3_Sales_Report.csv</div>
-            <div className="emp-topbar-sub">v1 · 4,521 rows · 12 cols · Cleaning in progress</div>
+      <div className="clean-topnav">
+        <button className="clean-back-btn" onClick={() => navigate('/employee/datasets')}>← Back</button>
+        <div>
+          <div className="clean-ds-label">{dsName}</div>
+          <div className="clean-ds-sublabel">
+            v1 · {tableRows.length.toLocaleString()} rows · {tableHeaders.length} cols · Cleaning in progress
           </div>
         </div>
-        <div className="emp-topbar-actions">
-          <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--warning)', display: 'inline-block', animation: 'adminPulse 1s infinite' }} />
-            Cleaning running in background
+        <div className="clean-topnav-right">
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: 'var(--amber)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--amber)', display: 'inline-block', animation: 'cleanBlink 1s infinite' }}></span>
+            Cleaning in progress
           </div>
-          <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={() => setVerifyOpen(true)}>Verify Dataset</button>
-          <button className="emp-btn emp-btn-success emp-btn-sm" onClick={() => setVerifyOpen(true)}>Approve & Continue →</button>
+          <button className="clean-btn clean-btn-ghost clean-btn-sm" onClick={() => setVerifyOpen(true)}>Verify Dataset</button>
         </div>
       </div>
 
-      {/* Step Timeline */}
-      <div style={{
-        padding: '14px 24px', background: 'rgba(22,27,34,0.7)', borderBottom: '1px solid var(--border-color)',
-        display: 'flex', alignItems: 'center', flexShrink: 0,
-      }}>
-        {STEPS.map((step, i) => (
-          <div
-            key={step.id}
-            onClick={() => setCurrentStep(step.id)}
-            style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
-              cursor: 'pointer', flex: 1, position: 'relative',
-            }}
-          >
-            {i < STEPS.length - 1 && (
-              <div style={{
-                position: 'absolute', top: 14, left: 'calc(50% + 20px)', right: 'calc(-50% + 20px)',
-                height: 2,
-                background: step.id < currentStep ? 'var(--success)' : step.id === currentStep ? 'linear-gradient(90deg, var(--primary), var(--border-color))' : 'var(--border-color)',
-              }} />
-            )}
-            <div style={{
-              width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontFamily: "'DM Mono', monospace", fontSize: 11, fontWeight: 600,
-              border: `2px solid ${step.id < currentStep ? 'var(--success)' : step.id === currentStep ? 'var(--primary)' : 'var(--border-color)'}`,
-              background: step.id < currentStep ? 'var(--success)' : step.id === currentStep ? 'var(--primary)' : 'rgba(13,17,23,0.95)',
-              color: step.id < currentStep ? '#051a12' : step.id === currentStep ? '#fff' : 'var(--text-muted)',
-              boxShadow: step.id === currentStep ? '0 0 16px rgba(88,166,255,0.4)' : 'none',
-              position: 'relative', zIndex: 1, transition: 'all 0.2s', flexShrink: 0,
-            }}>
-              {step.id < currentStep ? <CheckCircle2 size={14} /> : step.id}
+      {/* Timeline */}
+      <div className="clean-timeline">
+        {STEPS.map((s, idx) => {
+          let cls = 'clean-step';
+          if (s.id < currentStep) cls += ' done';
+          else if (s.id === currentStep) cls += ' active';
+          if (s.id === 5) cls += ' feat';
+
+          let status = 'Pending';
+          if (s.id < currentStep) status = 'Done';
+          else if (s.id === currentStep) {
+            if (s.id === 1) status = `${totNulls} found`;
+            if (s.id === 2) status = `${totDupes} dupes`;
+            if (s.id === 3) status = 'Checking';
+            if (s.id === 4) status = 'Scanning';
+            if (s.id === 5) status = 'Ready';
+          }
+
+          return (
+            <div key={s.id} className={cls} onClick={() => setCurrentStep(s.id)}>
+              <div className="clean-step-circle">{s.id === 5 ? '✦' : s.id}</div>
+              <div className="clean-step-name">{s.shortName}</div>
+              <div className="clean-step-status">{status}</div>
             </div>
-            <div style={{
-              fontFamily: "'DM Mono', monospace", fontSize: 9, textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap',
-              color: step.id < currentStep ? 'var(--success)' : step.id === currentStep ? 'var(--primary)' : 'var(--text-muted)',
-            }}>{step.name}</div>
-            <div style={{
-              fontFamily: "'DM Mono', monospace", fontSize: 9,
-              color: step.id < currentStep ? 'var(--success)' : step.id === currentStep ? 'var(--warning)' : 'var(--text-muted)',
-            }}>
-              {step.id < currentStep ? 'Completed' : step.id === currentStep ? 'Running…' : 'Pending'}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Split Panel */}
-      <div ref={wrapRef} style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
-        {/* Left: Data Table */}
-        <div style={{ flex: 'none', width: `${leftWidth}%`, display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border-color)', overflow: 'hidden' }}>
-          {/* Toolbar */}
-          <div style={{
-            padding: '10px 16px', background: 'rgba(13,17,23,0.95)', borderBottom: '1px solid var(--border-color)',
-            display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
-          }}>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)' }}>
-              Showing <strong style={{ color: 'var(--text-main)' }}>{colFilter === 'highlighted' ? 'affected columns' : 'all 12 columns'}</strong>
-            </div>
-            <select className="admin-filter-select" value={colFilter} onChange={e => setColFilter(e.target.value)} style={{ fontSize: 10 }}>
+      {/* Split View */}
+      <div className="clean-split-wrap">
+        
+        {/* LEFT PANEL - Table */}
+        <div className="clean-panel-left" style={{ width: `${leftWidth}%` }}>
+          <div className="clean-panel-toolbar">
+            <div className="clean-toolbar-label">Showing <strong>all {showHeaders.length} columns</strong></div>
+            <select className="clean-col-select">
               <option value="all">All Columns</option>
               <option value="highlighted">Affected Columns Only</option>
             </select>
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--warning)' }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--warning)', animation: 'adminPulse 1s infinite' }} />
-              Live changes reflecting
-            </div>
+            <div className={`clean-step-badge ${getBadge().cls}`}>{getBadge().txt}</div>
           </div>
-
-          {/* Table */}
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: "'DM Mono', monospace", fontSize: 11 }}>
-              <thead>
-                <tr>
-                  {visibleCols.map(col => (
-                    <th key={col} style={{
-                      padding: '9px 12px', textAlign: 'left',
-                      color: highlightedCols.includes(col) ? 'var(--warning)' : 'var(--text-muted)',
-                      fontSize: 9, letterSpacing: 1, textTransform: 'uppercase',
-                      borderBottom: '1px solid var(--border-color)', borderRight: '1px solid rgba(255,255,255,0.025)',
-                      position: 'sticky', top: 0, whiteSpace: 'nowrap',
-                      background: highlightedCols.includes(col) ? 'rgba(210,153,34,0.05)' : 'rgba(13,17,23,0.95)',
-                    }}>{col}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {tableData.map((row, ri) => (
-                  <tr key={ri} style={{ opacity: row.isDupe ? 0.5 : 1 }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(88,166,255,0.04)'}
-                    onMouseLeave={e => e.currentTarget.style.background = ''}>
-                    {visibleCols.map(col => {
-                      let cellStyle = { padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.025)', borderRight: '1px solid rgba(255,255,255,0.025)', color: 'var(--text-muted)', whiteSpace: 'nowrap' };
-                      let value = row[col];
-
-                      if (col === '#') cellStyle = { ...cellStyle, color: 'var(--text-muted)', fontSize: 9 };
-                      if (col === 'sale_date' && row.isWhitespace) cellStyle = { ...cellStyle, background: 'rgba(210,153,34,0.06)', color: 'var(--warning)' };
-                      if (col === 'sale_date' && !row.isWhitespace) cellStyle = { ...cellStyle, background: 'rgba(63,185,80,0.08)', color: 'var(--success)' };
-                      if (col === 'region' && row.isNull) { cellStyle = { ...cellStyle, color: 'var(--danger)', fontStyle: 'italic' }; value = 'NULL'; }
-                      if (col === 'discount' && row.isNull && row.id === 7) { cellStyle = { ...cellStyle, color: 'var(--danger)', fontStyle: 'italic' }; value = 'NULL'; }
-                      if (col === 'rep_name' && row.isWhitespace) cellStyle = { ...cellStyle, background: 'rgba(210,153,34,0.06)', color: 'var(--warning)' };
-                      if (col === 'status') {
-                        cellStyle = { ...cellStyle, color: value === 'Won' ? 'var(--success)' : value === 'Lost' ? 'var(--danger)' : 'var(--text-muted)' };
-                      }
-
-                      return <td key={col} style={cellStyle}>{value}</td>;
+          <div className="clean-data-scroll">
+            {loading ? (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink3)' }}>Loading data...</div>
+            ) : tableRows.length === 0 ? (
+              <div style={{ padding: 60, textAlign: 'center', color: 'var(--ink3)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, marginTop: 40 }}>
+                <div style={{ fontSize: 18, color: 'var(--ink)' }}>No Dataset Selected</div>
+                <div style={{ fontSize: 12 }}>You haven't selected a dataset to clean yet. Please choose or upload one to get started.</div>
+                <button 
+                  className="clean-btn clean-btn-primary" 
+                  onClick={() => navigate('/employee/datasets')}
+                  style={{ marginTop: 8 }}
+                >
+                  Go to Datasets Page →
+                </button>
+              </div>
+            ) : (
+              <table className="clean-data-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    {showHeaders.map(col => {
+                      const isNew = acceptedFeatObj.some(f => f.col === col);
+                      return <th key={col} className={isNew ? 'col-new' : ''}>{col}</th>;
                     })}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {activeData.slice(0, 50).map((row, ri) => (
+                    <tr key={ri}>
+                      <td className="row-num">{ri + 1}</td>
+                      {showHeaders.map(col => {
+                        const val = row[col];
+                        const isNull = val == null || String(val).trim() === '';
+                        let cls = '';
+                        if (currentStep === 1) {
+                          if (isNull) cls = 'cell-null';
+                          else if (!isNull && settings[1][col] && settings[1][col] !== 'Keep as-is') cls = 'cell-filled';
+                        }
+                        const isNew = acceptedFeatObj.some(f => f.col === col);
+                        if (isNew) cls = 'cell-new';
+                        return <td key={col} className={cls}>{isNull && currentStep === 1 ? 'NULL' : String(val ?? '')}</td>;
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
 
         {/* Drag Handle */}
-        <div
-          style={{
-            position: 'absolute', top: 0, bottom: 0, width: 6, cursor: 'col-resize', zIndex: 10,
-            left: `${leftWidth}%`, transform: 'translateX(-50%)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            transition: dragging.current ? 'none' : 'background 0.15s',
-          }}
-          onMouseDown={handleMouseDown}
-          onMouseEnter={e => e.currentTarget.style.background = 'rgba(88,166,255,0.2)'}
-          onMouseLeave={e => { if (!dragging.current) e.currentTarget.style.background = ''; }}
-        >
-          <div style={{ width: 2, height: 40, background: 'var(--border-color)', borderRadius: 2 }} />
-        </div>
+        <div className={`clean-drag-handle ${dragging ? 'dragging' : ''}`} style={{ left: `${leftWidth}%` }} onMouseDown={() => setDragging(true)}></div>
 
-        {/* Right: Controls */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'rgba(22,27,34,0.7)' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>Step {currentStep} — {STEPS[currentStep - 1].name}</div>
-            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>{STEPS[currentStep - 1].desc}</div>
+        {/* RIGHT PANEL - Step Control */}
+        <div className="clean-panel-right">
+          <div className="clean-rpanel-head">
+            <div className="clean-rpanel-title">Step {currentStep} — {STEPS[currentStep-1].name}</div>
+            <div className="clean-rpanel-sub">Configure how you'd like to clean this dataset</div>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
-            {renderStepContent()}
-            {/* Skip bar */}
-            <div style={{ padding: '12px 0', display: 'flex', gap: 8, alignItems: 'center', borderTop: '1px solid var(--border-color)', marginTop: 12 }}>
-              <button className="emp-btn emp-btn-ghost" style={{ flex: 1, justifyContent: 'center', fontSize: 11 }}>
-                <SkipForward size={12} /> Skip This Step
-              </button>
-              <button className="emp-btn emp-btn-ghost" style={{ flex: 1, justifyContent: 'center', fontSize: 11, color: 'var(--accent)', borderColor: 'rgba(188,140,255,0.3)' }}>
-                <Sparkles size={12} /> Let AI Decide
-              </button>
+          <div className="clean-rpanel-body">
+            
+            {/* Step 1 */}
+            {currentStep === 1 && (
+              <div>
+                <div className="clean-stat-row">
+                  <div className="clean-stat-mini"><div className="clean-stat-mini-val" style={{color:'var(--red)'}}>{totNulls}</div><div className="clean-stat-mini-lbl">Nulls Found</div></div>
+                  <div className="clean-stat-mini"><div className="clean-stat-mini-val">{nullCols.length}</div><div className="clean-stat-mini-lbl">Cols Affected</div></div>
+                </div>
+                <div className="clean-step-card">
+                  <div className="clean-step-card-title">Column Strategies</div>
+                  {nullCols.length === 0 ? (
+                    <div style={{fontSize:11, color:'var(--green)'}}>No nulls found!</div>
+                  ) : (
+                    nullCols.map(col => (
+                      <div className="clean-col-row" key={col}>
+                        <div><div className="clean-col-name">{col}</div><div style={{fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:'var(--ink3)'}}>{cNulls[col]} nulls</div></div>
+                        <div className="clean-col-stat danger">{cNulls[col]} nulls</div>
+                        <select className="clean-strategy-sel" value={settings[1][col] || 'Keep as-is'} onChange={e => setSettings({...settings, 1: {...settings[1], [col]: e.target.value}})}>
+                          {NULL_STRATEGIES.map(s => <option key={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="clean-skip-bar">
+                  <button className="clean-btn clean-btn-ghost clean-skip-btn" onClick={() => setCurrentStep(2)}>Skip This Step</button>
+                  <button className="clean-btn clean-btn-ghost clean-skip-btn" style={{color:'var(--purple)', borderColor:'rgba(167,139,250,0.3)'}} onClick={handleAiDecide}>✦ Let AI Decide</button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2 */}
+            {currentStep === 2 && (
+              <div>
+                <div className="clean-stat-row">
+                  <div className="clean-stat-mini"><div className="clean-stat-mini-val" style={{color:'var(--amber)'}}>{totDupes}</div><div className="clean-stat-mini-lbl">Dupes Found</div></div>
+                  <div className="clean-stat-mini"><div className="clean-stat-mini-val">{(tableRows.length - totDupes).toLocaleString()}</div><div className="clean-stat-mini-lbl">Unique Rows</div></div>
+                </div>
+                <div className="clean-step-card">
+                  <div className="clean-step-card-title">Duplicate Strategy</div>
+                  <div style={{display:'flex', flexDirection:'column', gap:8, marginTop:4}}>
+                    {DUPE_STRATEGIES.map(st => {
+                      const isActive = settings[2].strategy === st.id;
+                      return (
+                        <label key={st.id} style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer', padding:'8px 10px', borderRadius:8, border:`1px solid ${isActive?'var(--accent)':'var(--border)'}`, background:isActive?'var(--accentbg)':'transparent' }}>
+                          <input type="radio" name="dupstrat" checked={isActive} onChange={() => setSettings({...settings, 2:{strategy:st.id}})} style={{accentColor:'var(--accent)'}} />
+                          <div><div style={{fontSize:12, fontWeight:500, color:'var(--ink)'}}>{st.label}</div><div style={{fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:'var(--ink3)', marginTop:2}}>{st.desc}</div></div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="clean-skip-bar">
+                  <button className="clean-btn clean-btn-ghost clean-skip-btn" onClick={() => setCurrentStep(3)}>Skip This Step</button>
+                  <button className="clean-btn clean-btn-ghost clean-skip-btn" style={{color:'var(--purple)', borderColor:'rgba(167,139,250,0.3)'}} onClick={handleAiDecide}>✦ Let AI Decide</button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3 */}
+            {currentStep === 3 && (
+              <div>
+                <div className="clean-step-card">
+                  <div className="clean-step-card-title">Type Adjustments</div>
+                  {showHeaders.slice(0, 10).map(col => {
+                    return (
+                      <div className="clean-col-row" key={col}>
+                        <div><div className="clean-col-name">{col}</div></div>
+                        <select className="clean-strategy-sel" value={settings[3][col] || 'Auto-detect'} onChange={e => setSettings({...settings, 3: {...settings[3], [col]: e.target.value}})}>
+                          {TYPE_STRATEGIES.map(s => <option key={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="clean-skip-bar">
+                  <button className="clean-btn clean-btn-ghost clean-skip-btn" onClick={() => setCurrentStep(4)}>Skip This Step</button>
+                  <button className="clean-btn clean-btn-ghost clean-skip-btn" style={{color:'var(--purple)', borderColor:'rgba(167,139,250,0.3)'}} onClick={handleAiDecide}>✦ Let AI Decide</button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 4 */}
+            {currentStep === 4 && (
+              <div>
+                <div className="clean-step-card">
+                  <div className="clean-step-card-title">Outlier Detect - Numeric Only</div>
+                  {numCols.length === 0 ? (
+                    <div style={{fontSize:11, color:'var(--ink3)'}}>No numeric columns detected.</div>
+                  ) : (
+                    numCols.map(col => (
+                      <div className="clean-col-row" key={col}>
+                        <div><div className="clean-col-name">{col}</div></div>
+                        <select className="clean-strategy-sel" value={settings[4][col] || 'Keep as-is'} onChange={e => setSettings({...settings, 4: {...settings[4], [col]: e.target.value}})}>
+                          {OUTLIER_STRATEGIES.map(s => <option key={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="clean-skip-bar">
+                  <button className="clean-btn clean-btn-ghost clean-skip-btn" onClick={() => setCurrentStep(5)}>Skip This Step</button>
+                  <button className="clean-btn clean-btn-ghost clean-skip-btn" style={{color:'var(--purple)', borderColor:'rgba(167,139,250,0.3)'}} onClick={handleAiDecide}>✦ Let AI Decide</button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 5 */}
+            {currentStep === 5 && (
+              <div>
+                {featStreaming && (
+                  <div className="feat-loading">
+                    <div className="feat-loading-top">
+                      <div className="feat-spinner"></div>
+                      <div style={{fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:'var(--purple)'}}>Ollama analyzing dataset schema…</div>
+                    </div>
+                    <div className="feat-stream">
+                      {featStreamText.split('\n').map((line, i) => <div key={i}>{line}</div>)}
+                      <span className="clean-cursor-blink"></span>
+                    </div>
+                  </div>
+                )}
+
+                {featDone && (
+                  <div>
+                    <div style={{fontFamily:"'IBM Plex Mono',monospace", fontSize:9, color:'var(--ink3)', marginBottom:12, padding:'8px 10px', background:'var(--purplebg)', borderRadius:7, border:'1px solid rgba(167,139,250,0.15)'}}>
+                      ✦ Ollama suggested {aiSuggestions.length} new features · Accept or reject each individually
+                    </div>
+                    {aiSuggestions.map(s => {
+                      const status = featStatuses[s.id];
+                      return (
+                        <div className="feat-card" key={s.id} style={{ borderColor: status==='accept'?'rgba(34,211,238,0.5)':'rgba(34,211,238,0.18)', opacity: status==='reject'?0.4:1 }}>
+                          <div className="feat-card-header">
+                            <span className="feat-col-name">{s.col}</span>
+                            <span className="feat-type-tag">{s.type}</span>
+                          </div>
+                          <div className="feat-formula"><strong>{s.col}</strong> = {s.formula}</div>
+                          <div className="feat-desc">{s.desc}</div>
+                          <div className="feat-actions">
+                            {status !== 'reject' && (
+                              <button className="feat-btn feat-accept" style={{ background: status==='accept'?'rgba(34,211,238,0.2)':'var(--tealbg)' }} onClick={() => setFeatStatuses({...featStatuses, [s.id]:'accept'})}>
+                                {status === 'accept' ? '✓ Accepted' : '✓ Accept'}
+                              </button>
+                            )}
+                            {status !== 'accept' && (
+                              <button className="feat-btn feat-reject" style={{ background: status==='reject'?'rgba(251,113,133,0.2)':'var(--redbg)' }} onClick={() => setFeatStatuses({...featStatuses, [s.id]:'reject'})}>
+                                {status === 'reject' ? '✕ Rejected' : '✕ Reject'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {!featStreaming && !featDone && (
+                  <button className="clean-btn clean-btn-ghost clean-skip-btn" style={{width:'100%', color:'var(--purple)', borderColor:'rgba(167,139,250,0.3)'}} onClick={startFeatStream}>
+                    ✦ Start AI Feature Engineering
+                  </button>
+                )}
+
+                <div className="clean-skip-bar" style={{ display: featDone ? 'flex' : 'none' }}>
+                  <button className="clean-btn clean-btn-ghost clean-skip-btn">Skip Feature Eng.</button>
+                  <button className="clean-btn clean-btn-green clean-skip-btn" onClick={() => setVerifyOpen(true)}>Finalize Dataset →</button>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 32, padding: '16px 0 0 0', borderTop: '1px solid var(--border)' }}>
+              {currentStep > 1 && <button className="clean-btn clean-btn-ghost" style={{flex: 1}} onClick={() => setCurrentStep(prev => Math.max(1, prev - 1))}>← Previous</button>}
+              <button className="clean-btn clean-btn-primary" style={{flex: 1}} onClick={handleNext}>{currentStep === 5 ? 'Finalize →' : 'Next Step →'}</button>
             </div>
           </div>
         </div>
       </div>
 
       {/* Bottom Action Bar */}
-      <div style={{
-        padding: '12px 20px', background: 'rgba(13,17,23,0.95)', borderTop: '1px solid var(--border-color)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
-      }}>
-        <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)' }}>
-          Step {currentStep} of 5 — {STEPS[currentStep - 1].name}
-        </div>
+      <div className="clean-action-bar">
+        <div className="clean-step-indicator">Step {currentStep} of 5 — {STEPS[currentStep-1].name}</div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="emp-btn emp-btn-ghost" disabled={currentStep <= 1} onClick={() => setCurrentStep(s => Math.max(1, s - 1))}>
-            ← Previous
-          </button>
-          <button className="emp-btn emp-btn-primary" onClick={() => currentStep >= 5 ? setVerifyOpen(true) : setCurrentStep(s => Math.min(5, s + 1))}>
-            {currentStep >= 5 ? 'Verify →' : 'Next Step →'}
-          </button>
-          <button className="emp-btn emp-btn-success" onClick={() => setVerifyOpen(true)} style={{ marginLeft: 8 }}>
-            <Zap size={12} /> Run Cleaning
-          </button>
+          <button className="clean-btn clean-btn-ghost" onClick={() => setCurrentStep(prev => Math.max(1, prev - 1))}>← Previous</button>
+          <button className="clean-btn clean-btn-primary" onClick={handleNext}>{currentStep === 5 ? 'Finalize →' : 'Next Step →'}</button>
         </div>
       </div>
 
-      {/* Verify Modal */}
+      {/* VERIFY MODAL */}
       {verifyOpen && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)', zIndex: 200,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }} onClick={() => setVerifyOpen(false)}>
-          <div className="glass-panel" style={{
-            width: '92vw', maxWidth: 1000, maxHeight: '88vh',
-            display: 'flex', flexDirection: 'column', overflow: 'hidden',
-            animation: 'adminFadeUp 0.25s ease',
-          }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 14 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 18, fontWeight: 600, color: '#fff' }}>Verify Cleaned Dataset</div>
-                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-                  Q3_Sales_Report.csv · v1 → cleaned · Preview: first 100 rows
-                </div>
+        <div className="clean-verify-overlay show" onClick={() => { setVerifyOpen(false); setShowFullCleaned(false); }}>
+          <div className="clean-verify-modal" onClick={e => e.stopPropagation()}>
+            <div className="clean-verify-head">
+              <div>
+                <div className="clean-verify-title">Verify Cleaned Dataset</div>
+                <div style={{fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:'var(--ink3)', marginTop:2}}>{dsName} · v1 → cleaned · {showFullCleaned ? 'All Rows' : 'Preview: 50 rows'}</div>
               </div>
-              <button className="emp-btn emp-btn-ghost emp-btn-sm" onClick={() => setVerifyOpen(false)}><X size={14} /></button>
+              <button className="clean-btn clean-btn-ghost clean-btn-sm" onClick={() => { setVerifyOpen(false); setShowFullCleaned(false); }}>✕ Close</button>
             </div>
-
-            <div style={{
-              display: 'flex', gap: 24, padding: '16px 24px', background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border-color)',
-            }}>
-              {[
-                { val: '4,514', lbl: 'Rows After Cleaning', color: 'var(--success)' },
-                { val: '7', lbl: 'Duplicates Removed', color: 'var(--warning)' },
-                { val: '14', lbl: 'Nulls Filled', color: 'var(--primary)' },
-                { val: '3', lbl: 'Types Fixed', color: 'var(--accent)' },
-                { val: '5', lbl: 'Outliers Handled', color: 'var(--success)' },
-              ].map((s, i) => (
-                <div key={i} style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 22, fontWeight: 600, color: s.color }}>{s.val}</div>
-                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>{s.lbl}</div>
-                </div>
-              ))}
+            
+            <div className="clean-verify-stats">
+              <div className="clean-vstat"><div className="clean-vstat-val" style={{color:'var(--green)'}}>{activeData.length}</div><div className="clean-vstat-lbl">Rows After Cleaning</div></div>
+              <div className="clean-vstat"><div className="clean-vstat-val" style={{color:'var(--red)'}}>{totNulls}</div><div className="clean-vstat-lbl">Nulls Handled</div></div>
+              <div className="clean-vstat"><div className="clean-vstat-val" style={{color:'var(--amber)'}}>{totDupes}</div><div className="clean-vstat-lbl">Dupes Handled</div></div>
             </div>
-
-            <div style={{ flex: 1, overflow: 'auto', padding: 0 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: "'DM Mono', monospace", fontSize: 11 }}>
+            
+            <div className="clean-verify-body">
+              <table className="clean-data-table">
                 <thead>
                   <tr>
-                    {['#', 'sale_id', 'sale_date', 'region', 'revenue', 'rep_name', 'product', 'quantity', 'discount', 'customer_id'].map(col => (
-                      <th key={col} style={{
-                        background: 'rgba(13,17,23,0.95)', padding: '9px 12px', textAlign: 'left',
-                        color: 'var(--text-muted)', fontSize: 9, letterSpacing: 1, textTransform: 'uppercase',
-                        borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0,
-                      }}>{col}</th>
-                    ))}
+                    <th>#</th>
+                    {showHeaders.map(col => {
+                      const isNew = acceptedFeatObj.some(f => f.col === col);
+                      return <th key={col} className={isNew ? 'col-new' : ''}>{col}</th>;
+                    })}
                   </tr>
                 </thead>
                 <tbody>
-                  {Array.from({ length: 50 }, (_, i) => (
-                    <tr key={i} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'} onMouseLeave={e => e.currentTarget.style.background = ''}>
-                      <td style={tdSt}>{i + 1}</td>
-                      <td style={tdSt}>S-{String(i + 1).padStart(4, '0')}</td>
-                      <td style={{ ...tdSt, color: 'var(--success)' }}>2024-{String(Math.floor(i / 400) + 1).padStart(2, '0')}-{String((i % 28) + 1).padStart(2, '0')}</td>
-                      <td style={tdSt}>{REGIONS[i % 5]}</td>
-                      <td style={tdSt}>₹{(Math.random() * 80000 + 5000).toFixed(0)}</td>
-                      <td style={tdSt}>{REPS[i % 5]}</td>
-                      <td style={tdSt}>{PRODUCTS[i % 5]}</td>
-                      <td style={tdSt}>{Math.floor(Math.random() * 50 + 1)}</td>
-                      <td style={tdSt}>{(Math.random() * 30).toFixed(1)}%</td>
-                      <td style={tdSt}>CUST-{String(1000 + i).padStart(5, '0')}</td>
+                  {(showFullCleaned ? activeData : activeData.slice(0, 50)).map((row, ri) => (
+                    <tr key={ri}>
+                      <td className="row-num">{ri + 1}</td>
+                      {showHeaders.map(col => {
+                         const isNew = acceptedFeatObj.some(f => f.col === col);
+                         return <td key={col} className={isNew ? 'cell-new' : ''}>{String(row[col] ?? '')}</td>;
+                      })}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-
-            <div style={{
-              padding: '14px 24px', borderTop: '1px solid var(--border-color)',
-              background: 'rgba(13,17,23,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            }}>
+            
+            <div className="clean-verify-foot" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <button className="emp-btn emp-btn-ghost" onClick={() => setVerifyOpen(false)}>← Re-clean</button>
-                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-muted)', marginLeft: 12 }}>
-                  Showing 50 of 4,514 rows
+                <button className="clean-btn clean-btn-ghost" onClick={() => { setVerifyOpen(false); setShowFullCleaned(false); }}>← Re-clean</button>
+                <span style={{fontFamily:"'IBM Plex Mono',monospace", fontSize:10, color:'var(--ink3)', marginLeft:12}}>
+                  {!showFullCleaned ? (
+                    <>Showing preview · <span style={{color:'var(--accent2)', cursor:'pointer'}} onClick={() => setShowFullCleaned(true)}>View Full Dataset ↗</span></>
+                  ) : (
+                    <>Showing full set · <span style={{color:'var(--accent2)', cursor:'pointer'}} onClick={() => setShowFullCleaned(false)}>Collapse ↙</span></>
+                  )}
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button className="emp-btn emp-btn-ghost" onClick={() => { setVerifyOpen(false); navigate('/employee/visualization'); }}>
-                  <BarChart3 size={14} /> Visualize
-                </button>
-                <button className="emp-btn emp-btn-success" onClick={() => { setVerifyOpen(false); navigate('/employee/dashboard'); }}>
-                  <CheckCircle2 size={14} /> Approve & Open Dashboard →
-                </button>
+                <button className="clean-btn clean-btn-primary" onClick={handleDownload}>↓ Download Cleaned CSV</button>
+                <button className="clean-btn clean-btn-green" onClick={() => navigate(`/employee/visualization?ds=${dsId}&name=${encodeURIComponent(dsName)}`)}>Proceed to Visualization →</button>
               </div>
             </div>
           </div>
         </div>
       )}
-
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes adminPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-      `}</style>
-    </EmployeeLayout>
+    </div>
   );
 };
-
-const statRowStyle = { display: 'flex', gap: 10, marginBottom: 12 };
-const statMiniStyle = { flex: 1, background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: 10, textAlign: 'center' };
-const statValStyle = { fontSize: 18, fontWeight: 600, color: '#fff' };
-const statLblStyle = { fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', marginTop: 2 };
-const stepCardStyle = { background: 'rgba(13,17,23,0.95)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '14px 16px', marginBottom: 12 };
-const stepCardTitleStyle = { fontFamily: "'DM Mono', monospace", fontSize: 10, color: 'var(--text-main)', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 };
-const colRowStyle = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.025)' };
-const colNameStyle = { fontFamily: "'DM Mono', monospace", fontSize: 11, color: '#fff', flex: 1 };
-const colStatStyle = { fontFamily: "'DM Mono', monospace", fontSize: 9, color: 'var(--text-muted)', minWidth: 60, textAlign: 'right' };
-const tdSt = { padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.025)', color: 'var(--text-muted)', whiteSpace: 'nowrap' };
 
 export default EmployeeCleaningPage;

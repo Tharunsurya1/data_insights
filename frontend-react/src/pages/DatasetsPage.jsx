@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Database, Calendar, FileText, ChevronRight, Loader, BarChart3, Trash2, AlertTriangle } from 'lucide-react';
+import { Database, Calendar, FileText, ChevronRight, Loader, BarChart3, Trash2, AlertTriangle, Sparkles } from 'lucide-react';
 import { getDatasets, deleteDataset } from '../services/api';
 
 const DatasetsPage = () => {
@@ -160,6 +160,18 @@ const DatasetsPage = () => {
                                         style={{ padding: '0.5rem 1rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
                                     >
                                         <BarChart3 size={16} /> Visualize
+                                    </button>
+                                )}
+                                {(dataset.status === 'new' || dataset.status === 'processing') && (
+                                    <button 
+                                        className="btn-primary"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            navigate(`/employee/cleaning?ds=${dataset.dataset_id}&name=${encodeURIComponent(dataset.name)}`);
+                                        }}
+                                        style={{ padding: '0.5rem 1rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                                    >
+                                        <Sparkles size={16} /> Clean
                                     </button>
                                 )}
                                 <button 
