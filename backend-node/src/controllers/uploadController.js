@@ -32,8 +32,8 @@ export const uploadDataset = async (req, res) => {
       const fileHash = crypto.createHash('md5').update(datasetPath + Date.now()).digest('hex');
       
       const insertResult = await pool.query({
-        text: 'INSERT INTO datasets (dataset_id, company_id, name, hash, status) VALUES ($1, $2, $3, $4, $5)',
-        values: [datasetId, companyId, req.file.originalname, fileHash, 'processing']
+        text: 'INSERT INTO datasets (dataset_id, company_id, name, uploaded_by, hash, status) VALUES ($1, $2, $3, $4, $5, $6)',
+        values: [datasetId, companyId, req.file.originalname, userEmail, fileHash, 'processing']
       });
       
       console.log(`[DB] Dataset record created with ID: ${datasetId}, status: processing, rowsAffected: ${insertResult.rowCount}`);

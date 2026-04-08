@@ -80,7 +80,7 @@ export const approveUser = async (email, approved) => {
 export const uploadDataset = async (file) => {
     const formData = new FormData();
     formData.append('dataset', file);
-    
+
     // Let axios set the proper boundary for multipart/form-data
     const response = await api.post('/upload', formData);
     return response.data;
@@ -119,6 +119,11 @@ export const getDatasets = async () => {
     return response.data;
 };
 
+export const getDatasetsAdmin = async () => {
+    const response = await api.get('/datasets-admin');
+    return response.data;
+};
+
 export const deleteDataset = async (datasetId) => {
     const response = await api.delete(`/datasets/${datasetId}`);
     return response.data;
@@ -126,6 +131,16 @@ export const deleteDataset = async (datasetId) => {
 
 export const getCleanedData = async (datasetId, params = {}) => {
     const response = await api.get(`/cleaned-data/${datasetId}`, { params });
+    return response.data;
+};
+
+export const getActivityLogs = async (filters = {}) => {
+    const response = await api.get('/activity-logs', { params: filters });
+    return response.data;
+};
+
+export const getActivityStats = async () => {
+    const response = await api.get('/activity-stats');
     return response.data;
 };
 

@@ -32,6 +32,25 @@ export const getAllDatasets = async (req, res) => {
   }
 };
 
+export const getAllDatasetsAdmin = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT d.*, dv.version_id, dv.is_cleaned, dv.created_at as version_created,
+              u.name as uploaded_by_name, u.email as uploaded_by_email,
+              c.company_name
+       FROM datasets d
+       LEFT JOIN dataset_versions dv ON d.dataset_id = dv.dataset_id
+       LEFT JOIN users u ON d.uploaded_by = u.user_id
+       LEFT JOIN companies c ON d.company_id = c.company_id
+       ORDER BY d.created_at DESC`
+    );
+    return res.json({ success: true, count: result.rows.length, data: result.rows });
+  } catch (err) {
+    console.error("getAllDatasetsAdmin error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 export const getDatasetById = async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM datasets WHERE dataset_id = $1", [req.params.id]);

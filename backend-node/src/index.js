@@ -14,6 +14,7 @@ import chatRoutes from "./routes/chatRoutes.js";
 import ragChatRoutes from "./routes/ragChatRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import cleanedDataRoutes from "./routes/cleanedDataRoutes.js";
+import activityRoutes from "./routes/activityRoutes.js";
 
 dotenv.config();
 await connectDB();
@@ -33,10 +34,11 @@ app.use("/api", datasetRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api", cleanedDataRoutes);
+app.use("/api", activityRoutes);
 
 /* ========== HEALTH CHECK ========== */
 app.get("/", (req, res) => {
-  res.send("Backend is running 🚀");
+    res.send("Backend is running 🚀");
 });
 
 /* ========== DIAGNOSTIC ENDPOINT ========== */
@@ -67,6 +69,6 @@ app.listen(PORT, () => {
 });
 
 // PREVENT CLEAN EXIT DURING NATIVE MOCKING
-setInterval(() => {}, 1000 * 60 * 60);
+setInterval(() => { }, 1000 * 60 * 60);
 
 export default app;

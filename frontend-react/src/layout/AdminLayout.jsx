@@ -7,19 +7,25 @@ import {
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 
 const navItems = [
-  { label: 'Main', items: [
-    { path: '/admin', icon: LayoutDashboard, text: 'Dashboard' },
-    { path: '/admin/permissions', icon: Shield, text: 'Permissions', badge: 3 },
-    { path: '/admin/logs', icon: FileText, text: 'Logs' },
-  ]},
-  { label: 'Manage', items: [
-    { path: '/admin', icon: Users, text: 'Employees' },
-    { path: '/datasets', icon: Database, text: 'Datasets' },
-    { path: '/admin/permissions', icon: Shield, text: 'Permissions' },
-  ]},
-  { label: 'Company', items: [
-    { path: '/admin', icon: Settings, text: 'Settings' },
-  ]},
+  {
+    label: 'Main', items: [
+      { path: '/admin', icon: LayoutDashboard, text: 'Dashboard' },
+      { path: '/admin/permissions', icon: Shield, text: 'Permissions', badge: 3 },
+      { path: '/admin/logs', icon: FileText, text: 'Logs' },
+    ]
+  },
+  {
+    label: 'Manage', items: [
+      { path: '/admin', icon: Users, text: 'Employees' },
+      { path: '/datasets', icon: Database, text: 'Datasets' },
+      { path: '/admin/permissions', icon: Shield, text: 'Permissions' },
+    ]
+  },
+  {
+    label: 'Company', items: [
+      { path: '/admin', icon: Settings, text: 'Settings' },
+    ]
+  },
 ];
 
 export default function AdminLayout({ children, title, subtitle }) {

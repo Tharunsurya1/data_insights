@@ -7,13 +7,14 @@ import { dirname } from "path";
 import { uploadDataset } from "../controllers/uploadController.js";
 import { uploadLimiter } from "../middleware/rateLimiter.js";
 import { protect } from "../middleware/protect.js";
+import { logActivity } from "../controllers/activityController.js";
+import { pool } from "../config/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const router = express.Router();
 
-// Use __dirname to ensure uploads folder is in backend-node directory
 const uploadDir = path.join(__dirname, "../../uploads");
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
@@ -29,7 +30,6 @@ const storage = multer.diskStorage({
 const upload = multer({ 
   storage,
   fileFilter: (req, file, cb) => {
-    // Allow CSV, Excel, and JSON files
     const allowedMimes = [
       "text/csv",
       "application/vnd.ms-excel",
@@ -61,8 +61,7 @@ router.post("/upload", protect, uploadLimiter, (req, res, next) => {
   console.log(startMsg);
   req.metrics.push(startMsg);
 
-  // Use "dataset" since our React api.js sends "dataset" inside FormData
-  upload.single("dataset")(req, res, (err) => {
+  upload.single("dataset")(req, res, async (err) => {
     const saveTime = Date.now() - req.uploadStartTime;
     const saveMsg = `[FILE-SAVED] file saved in ${saveTime}ms`;
     console.log(saveMsg);
@@ -82,12 +81,35 @@ router.post("/upload", protect, uploadLimiter, (req, res, next) => {
           message: err.message || "File upload error",
         });
       }
-      // Handle fileFilter errors
       return res.status(400).json({
         success: false,
         message: err.message || "Invalid file type",
       });
     }
+
+    if (req.file) {
+      const userId = req.user?.userId || req.user?.email;
+      const userEmail = req.user?.email;
+      const userName = userEmail?.split('@')[0] || 'Unknown';
+      const datasetName = req.file.originalname;
+      const fileSize = req.file.size;
+
+      try {
+        await logActivity({
+          userId,
+          userName,
+          userEmail,
+          eventType: "UPLOAD",
+          eventDescription: `Uploaded dataset ${datasetName}`,
+          datasetName,
+          detail: `Uploaded · ${(fileSize / 1024 / 1024 > 1 ? (fileSize / 1024 / 1024).toFixed(1) + 'MB' : (fileSize / 1024).toFixed(1) + 'KB')}`,
+          status: "pending"
+        });
+      } catch (logErr) {
+        console.error("Activity logging error:", logErr);
+      }
+    }
+
     next();
   });
 }, uploadDataset);

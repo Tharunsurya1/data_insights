@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import { pool } from "../config/db.js";
+import { logEmployeeLogin } from "./activityController.js";
 
 // ── Utility: dynamic bcrypt import (falls back gracefully) ──
 let bcryptLib = null;
@@ -163,11 +164,11 @@ export const login = async (req, res) => {
         [user.user_id]
       );
       const dbRole = userRoles.rows.length > 0 ? userRoles.rows[0].role_name : "viewer";
-      
+
       if (dbRole !== "admin") {
-        return res.status(403).json({ 
+        return res.status(403).json({
           message: "Account pending approval. Please contact your administrator to activate your account.",
-          pending: true 
+          pending: true
         });
       }
       return res.status(403).json({ message: "Account is deactivated. Contact your administrator." });
@@ -194,6 +195,17 @@ export const login = async (req, res) => {
       process.env.JWT_SECRET || "secret",
       { expiresIn: "1d" }
     );
+
+    try {
+      await pool.query(
+        `INSERT INTO user_sessions (user_id, user_email, is_active) VALUES ($1, $2, true)`,
+        [user.user_id, user.email]
+      );
+    } catch (sessErr) {
+      console.warn("Session creation error:", sessErr.message);
+    }
+
+    await logEmployeeLogin(user.user_id, user.name, user.email);
 
     res.json({
       token,
@@ -411,10 +423,10 @@ export const getPendingUsers = async (req, res) => {
       WHERE u.is_active = false
       ORDER BY u.created_at DESC
     `);
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       users: formatUsers(result.rows).map(u => ({ ...u, status: 'pending' })),
-      count: result.rows.length 
+      count: result.rows.length
     });
   } catch (err) {
     console.error("getPendingUsers error:", err);
@@ -428,7 +440,7 @@ export const getPendingUsers = async (req, res) => {
 export const approveUser = async (req, res) => {
   const { email } = req.params;
   const { approved } = req.body;
-  
+
   try {
     const user = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
     if (user.rows.length === 0) {
